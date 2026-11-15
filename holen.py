@@ -3,9 +3,12 @@
 Aufruf:
   .venv/bin/python holen.py QUELLE            zeigt die neuesten Folgen
   .venv/bin/python holen.py QUELLE --laden 3  lädt Folge Nr. 3 der Liste
+
+Neben jede Audiodatei kommt <name>.meta.json mit Titel, Datum, Folgenseite und Quelle.
 """
 
 import argparse
+import json
 import re
 import time
 import tomllib
@@ -73,6 +76,19 @@ def lade(folge, ziel):
     teil.rename(ziel)
 
 
+def schreibe_meta(folge, quelle, ziel):
+    meta = dict(folge)
+    meta.update({
+        "quelle": quelle["kennung"],
+        "quelle_name": quelle["name"],
+        "zweck": quelle["zweck"],
+        "sprache": quelle["sprache"],
+    })
+    pfad = ziel.with_name(ziel.stem + ".meta.json")
+    pfad.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    return pfad
+
+
 def main():
     parser = argparse.ArgumentParser(description="Feed abfragen und Folgen laden")
     parser.add_argument("quelle", help="Kennung der Quelle aus config.toml")
@@ -96,10 +112,11 @@ def main():
     ziel = Path(konfiguration["pfade"]["daten"]) / "audio" / quelle["kennung"] / dateiname(folge)
     if ziel.exists():
         print(f"Schon vorhanden: {ziel}")
-        return
-    print(f"Lade {folge['titel']} ...")
-    lade(folge, ziel)
-    print(f"Gespeichert: {ziel} ({ziel.stat().st_size / 1_000_000:.1f} MB)")
+    else:
+        print(f"Lade {folge['titel']} ...")
+        lade(folge, ziel)
+        print(f"Gespeichert: {ziel} ({ziel.stat().st_size / 1_000_000:.1f} MB)")
+    print(f"Angaben: {schreibe_meta(folge, quelle, ziel)}")
 
 
 if __name__ == "__main__":

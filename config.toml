@@ -2,6 +2,7 @@
 
 [pfade]
 daten = "/mnt/daten/lesesaal"
+notizen = "/home/apollon/Arbeitsmappe_Lokal/Code/lesesaal-notizen"
 whisper_modell = "/home/apollon/opt/noScribe/models/precise"
 
 [ollama]
