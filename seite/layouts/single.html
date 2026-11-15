@@ -1,0 +1,29 @@
+{{ define "main" }}
+<article data-pagefind-body>
+  <h1>{{ .Title }}</h1>
+  <p class="meta">{{ .Date.Format "02.01.2006" }}{{ with .Params.quelle }} · {{ . }}{{ end }}{{ with .Params.format }} · {{ index site.Params.formate . }}{{ end }}{{ with .Params.status }} · <span class="status">{{ . }}</span>{{ end }}</p>
+  {{ .Content }}
+  <p class="tags">{{ range .GetTerms "tags" }}<a href="{{ .RelPermalink }}">#{{ .LinkTitle }}</a>{{ end }}</p>
+</article>
+{{ with .Params.audio }}
+<audio class="spieler" id="spieler" controls preload="none" src="{{ . }}"></audio>
+<script>
+  // Zeitmarken spielen im Player dieser Seite ab, statt die Audiodatei neu zu öffnen.
+  (function () {
+    var spieler = document.getElementById("spieler");
+    document.querySelectorAll("article a").forEach(function (link) {
+      var teile = link.href.split("#t=");
+      if (teile.length !== 2 || teile[0] !== spieler.src) return;
+      link.addEventListener("click", function (ereignis) {
+        ereignis.preventDefault();
+        var sekunden = parseFloat(teile[1]);
+        var springe = function () { spieler.currentTime = sekunden; };
+        if (spieler.readyState >= 1) { springe(); }
+        else { spieler.addEventListener("loadedmetadata", springe, { once: true }); }
+        spieler.play();
+      });
+    });
+  })();
+</script>
+{{ end }}
+{{ end }}

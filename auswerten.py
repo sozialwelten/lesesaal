@@ -60,7 +60,7 @@ FORMATE = {
                 "arten": ["These", "Begriff"],
                 "was": "Thesen und Begriffe, die im Gespräch vertreten oder erklärt werden",
                 "pro_abschnitt": 3,
-                "hoechstens": 6,
+                "hoechstens": 8,
             },
             "hinweise": {
                 "arten": ["Projekt", "Initiative", "Organisation", "Veranstaltung", "Termin",
@@ -283,6 +283,7 @@ def schreibe_notiz(pfad, meta, fmt_kennung, funde, hashtags, sprung):
         f"tags: {json.dumps(hashtags, ensure_ascii=False)}",
         'status: "ungeprüft"',
         f"folgenseite: {json.dumps(meta['seite'])}",
+        f"audio: {json.dumps(meta['url'])}",
         "---",
         "",
         f"{fmt['name']} zur Folge [{meta['titel']}]({meta['seite']}) von {meta['quelle_name']} vom {t}.{m}.{j}.",
@@ -294,7 +295,9 @@ def schreibe_notiz(pfad, meta, fmt_kennung, funde, hashtags, sprung):
         zeilen += ["", f"## {teil}", ""]
         for f in eintraege:
             marke = f["zeitmarke"]
-            if sprung and meta.get("seite"):
+            if meta.get("url"):
+                marke = f"[{marke}]({meta['url']}#t={in_sekunden(marke)})"
+            elif sprung and meta.get("seite"):
                 marke = f"[{marke}]({meta['seite']}{sprung.format(zeit=marke)})"
             zeilen.append(f"- **{f['titel']}** ({f['art']}, {marke}): {f['beschreibung']}")
     pfad.parent.mkdir(parents=True, exist_ok=True)

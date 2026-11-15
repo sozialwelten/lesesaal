@@ -1,0 +1,8 @@
+{{ define "main" }}
+<h1>{{ index (dict "tags" "Hashtags" "quelle" "Quellen" "format" "Formate") .Data.Plural }}</h1>
+<ul class="liste">
+{{ range .Data.Terms.Alphabetical }}
+  <li><a href="{{ .Page.RelPermalink }}">{{ .Page.LinkTitle }}</a> <span class="meta">({{ .Count }})</span></li>
+{{ end }}
+</ul>
+{{ end }}

@@ -1,0 +1,25 @@
+{{ define "main" }}
+{{ $seiten := .Pages }}
+{{ if .IsHome }}
+  <div id="suche"></div>
+  <script src="{{ "pagefind/pagefind-ui.js" | relURL }}"></script>
+  <script>
+    window.addEventListener("DOMContentLoaded", function () {
+      if (window.PagefindUI) {
+        new PagefindUI({ element: "#suche", showSubResults: true, translations: { placeholder: "Suchen" } });
+      }
+    });
+  </script>
+  {{ $seiten = where site.RegularPages "Section" "notizen" }}
+{{ else }}
+  <h1>{{ .Title }}</h1>
+{{ end }}
+<ul class="liste">
+{{ range $seiten.ByDate.Reverse }}
+  <li>
+    <a href="{{ .RelPermalink }}">{{ .Title }}</a><br>
+    <span class="meta">{{ .Date.Format "02.01.2006" }}{{ with .Params.quelle }} · {{ . }}{{ end }}{{ with .Params.format }} · {{ index site.Params.formate . }}{{ end }}{{ with .Params.status }} · <span class="status">{{ . }}</span>{{ end }}</span>
+  </li>
+{{ end }}
+</ul>
+{{ end }}

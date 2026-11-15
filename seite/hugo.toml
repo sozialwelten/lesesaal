@@ -1,0 +1,23 @@
+# Hugo-Konfiguration für den Lesesaal.
+# Inhalte, Adresse und Zielordner übergibt bauen.py beim Aufruf.
+
+title = "Lesesaal"
+languageCode = "de-de"
+defaultContentLanguage = "de"
+capitalizeListTitles = false
+disableKinds = ["sitemap"]
+
+[taxonomies]
+  tag = "tags"
+  quelle = "quelle"
+  format = "format"
+
+[outputs]
+  home = ["html", "rss"]
+  section = ["html"]
+  taxonomy = ["html"]
+  term = ["html", "rss"]
+
+[params.formate]
+  tech = "Tech-Radar"
+  gespraech = "Gesprächsnotiz"

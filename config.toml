@@ -16,7 +16,6 @@ typ = "podcast"
 feed = "https://hybr.de/feed/mp3/"
 sprache = "de"
 zweck = "tech"
-sprunglink = "#t={zeit}"
 hinweise = "Die c-base erzählt ihre Geschichte als Rahmenerzählung von einer abgestürzten Raumstation aus der Zukunft. Diese Erzählung ist Fiktion und liefert keine Fundstücke. Aufnehmen nur reale Projekte, Technik und Termine."
 
 [whisper]
@@ -31,3 +30,6 @@ feed = "https://netzpolitik.org/feed/podcast/off-on/"
 sprache = "de"
 zweck = "tech"
 formate = [{muster = "On The Record", format = "gespraech"}, {muster = "Off The Record", format = "tech"}]
+
+[seite]
+adresse = "https://lesesaal.fedihive.de"
