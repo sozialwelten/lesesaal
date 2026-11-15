@@ -1,0 +1,21 @@
+# Einstellungen für diesen Rechner (medienlabor)
+
+[pfade]
+daten = "/mnt/daten/lesesaal"
+whisper_modell = "/home/apollon/opt/noScribe/models/precise"
+
+[ollama]
+adresse = "http://localhost:11434"
+modell = "qwen3:32b"
+
+[[quelle]]
+kennung = "hyperbandrauschen"
+name = "Hyperbandrauschen"
+typ = "podcast"
+feed = "https://hybr.de/feed/mp3/"
+sprache = "de"
+zweck = "tech"
+
+[whisper]
+karte = 1
+rechenart = "float16"
