@@ -22,3 +22,12 @@ hinweise = "Die c-base erzählt ihre Geschichte als Rahmenerzählung von einer a
 [whisper]
 karte = 1
 rechenart = "float16"
+
+[[quelle]]
+kennung = "netzpolitik-offon"
+name = "netzpolitik.org Off/On"
+typ = "podcast"
+feed = "https://netzpolitik.org/feed/podcast/off-on/"
+sprache = "de"
+zweck = "tech"
+formate = [{muster = "On The Record", format = "gespraech"}, {muster = "Off The Record", format = "tech"}]
