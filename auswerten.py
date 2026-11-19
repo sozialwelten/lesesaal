@@ -10,8 +10,12 @@ Ablauf:
      jeden ein. Gefiltert wird im Code. Läuft ein Abschnitt fast über den Kontext, wird er
      geteilt und neu ausgewertet.
   3. Die relevantesten Einträge jeder Liste führt das Modell mit Nachdenken zusammen
-     und vergibt Hashtags.
-  4. Markdown-Notiz nach NOTIZEN/inhalt/notizen/ schreiben, gegliedert in Teile.
+     und vergibt Hashtags, frei aus den Einträgen der Folge.
+  4. Hashtags angleichen: Der Code übernimmt die Schreibweise vorhandener Hashtags, wenn sie
+     sich nur in Groß- und Kleinschreibung oder Umlauten unterscheiden. Für die übrigen fragt
+     ein kurzer Durchgang ohne Nachdenken, ob ein vorhandener Hashtag dasselbe meint, etwa KI
+     und KuenstlicheIntelligenz. Nur dann wird ersetzt. Neue Hashtags bleiben erlaubt.
+  5. Markdown-Notiz nach NOTIZEN/inhalt/notizen/ schreiben, gegliedert in Teile.
 
 Die rohen Antworten des Modells landen unter DATEN/auswertungen/<quelle>/.
 """
@@ -35,6 +39,7 @@ MIN_RELEVANZ = 3
 MIN_RELEVANZ_THESEN = 4
 ZUM_ZUSAMMENFUEHREN_PRO_LISTE = 15
 DENKEN_HOECHSTENS = 4000
+VORHANDENE_HOECHSTENS = 300  # so viele vorhandene Hashtags, die häufigsten zuerst, gehen in den Abgleich
 PROFIL_ABSCHNITTE = {"tech": "Tech", "lernstoff": "Lernstoff", "theorie": "Theorie", "finanzen": "Finanzen"}
 
 FORMATE = {
@@ -266,6 +271,84 @@ def sauberer_hashtag(wort):
     return re.sub(r"[^\wÄÖÜäöüß]", "", wort.replace("#", "").strip())
 
 
+def vergleichsform(wort):
+    """Schreibweise für den Vergleich: klein, Umlaute ausgeschrieben."""
+    wort = wort.lower()
+    for alt, neu in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        wort = wort.replace(alt, neu)
+    return wort
+
+
+def vorhandene_hashtags(ordner, ausser):
+    """Hashtags aus dem Kopfbereich aller Notizen, nach Häufigkeit. Die Notiz `ausser` zählt nicht mit."""
+    zaehler, schreibweise = Counter(), {}
+    for datei in sorted(ordner.glob("*.md")):
+        if datei.stem == ausser:
+            continue
+        for zeile in datei.read_text(encoding="utf-8").splitlines()[1:]:
+            if zeile == "---":
+                break
+            if zeile.startswith("tags:"):
+                try:
+                    tags = json.loads(zeile[5:])
+                except json.JSONDecodeError:
+                    tags = []
+                for tag in tags:
+                    tag = sauberer_hashtag(str(tag))
+                    if tag:
+                        schluessel = vergleichsform(tag)
+                        zaehler[schluessel] += 1
+                        schreibweise.setdefault(schluessel, tag)
+                break
+    return [schreibweise[s] for s, _ in sorted(zaehler.items(), key=lambda e: (-e[1], e[0]))]
+
+
+def gleiche_an(konfiguration, kandidaten, vorrat):
+    """Fragt das Modell, welcher Kandidat dasselbe meint wie ein vorhandener Hashtag.
+
+    Gibt ein Wörterbuch Kandidat -> vorhandener Hashtag zurück, nur für echte Entsprechungen."""
+    if not kandidaten or not vorrat:
+        return {}, None
+    inhalt = (
+        f"Vorhandene Hashtags: {', '.join(vorrat)}\n\n"
+        f"Neue Hashtags: {', '.join(kandidaten)}\n\n"
+        "Aufgabe: Prüfe für jeden neuen Hashtag, ob einer der vorhandenen Hashtags genau dasselbe meint. "
+        "Das ist der Fall bei einer anderen Schreibweise, einer Abkürzung, Einzahl und Mehrzahl, "
+        "einer Übersetzung oder einem gleichbedeutenden Wort, etwa KI und KuenstlicheIntelligenz "
+        "oder Vektordatenbank und VectorDatabase. Ein nur thematisch verwandter, übergeordneter oder "
+        "untergeordneter Hashtag zählt nicht. Im Zweifel: keiner.\n"
+        "Gib für jeden neuen Hashtag genau einen Eintrag zurück: hashtag ist der neue Hashtag, "
+        "entspricht ist der vorhandene Hashtag mit derselben Bedeutung oder keiner."
+    )
+    schema = {
+        "type": "object",
+        "properties": {
+            "zuordnung": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "hashtag": {"type": "string", "enum": kandidaten},
+                        "entspricht": {"type": "string", "enum": vorrat + ["keiner"]},
+                    },
+                    "required": ["hashtag", "entspricht"],
+                },
+            },
+        },
+        "required": ["zuordnung"],
+    }
+    roh, statistik = frage_modell(konfiguration, inhalt, schema)
+    try:
+        zuordnung = json.loads(roh).get("zuordnung", [])
+    except json.JSONDecodeError:
+        return {}, {"schritt": "hashtags angleichen", "roh": roh, **statistik}
+    ergebnis = {
+        z["hashtag"]: z["entspricht"] for z in zuordnung
+        if z.get("hashtag") in kandidaten and z.get("entspricht") in vorrat
+    }
+    return ergebnis, {"schritt": "hashtags angleichen", "antwort": zuordnung, **statistik}
+
+
 def erster_satz(text):
     return re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0][:220]
 
@@ -347,6 +430,11 @@ def main():
     notizen = Path(konfiguration["pfade"]["notizen"])
     profil = profil_auszug((notizen / "interessenprofil.md").read_text(encoding="utf-8"), fmt["profil"])
 
+    notizordner = notizen / "inhalt" / "notizen"
+    bekannt = vorhandene_hashtags(notizordner, audio.stem)
+    zweck_tags = {vergleichsform(t) for t in PROFIL_ABSCHNITTE.values()}
+    vorrat = [t for t in bekannt if vergleichsform(t) not in zweck_tags][:VORHANDENE_HOECHSTENS]
+
     warteschlange = teile_auf(transkript["abschnitte"])
     print(f"{meta['titel']}: {fmt['name']}, {len(warteschlange)} Abschnitte, Modell {konfiguration['ollama']['modell']}")
 
@@ -423,6 +511,39 @@ def main():
         print(f"  Zusammenführen {art}: aus {uebersicht} wurden {len(funde)} Einträge; {bericht(statistik)}")
         protokoll.append({"schritt": "zusammenführen", "roh": roh, **statistik})
 
+    tags, angeglichen = [], []
+    if funde:
+        # 1. Schreibweise: gleiche Hashtags bis auf Groß- und Kleinschreibung oder Umlaute
+        schreibweise = {vergleichsform(t): t for t in reversed(bekannt)}
+        kandidaten = []
+        for h in [PROFIL_ABSCHNITTE[meta["zweck"]]] + list(hashtags):
+            h = sauberer_hashtag(str(h))
+            if not h:
+                continue
+            h = schreibweise.get(vergleichsform(h), h)
+            if vergleichsform(h) not in {vergleichsform(t) for t in tags}:
+                tags.append(h)
+            if vergleichsform(h) not in schreibweise and vergleichsform(h) not in zweck_tags:
+                kandidaten.append(h)
+        # 2. Bedeutung: das Modell meldet echte Entsprechungen, der Code ersetzt nur diese
+        zuordnung, eintrag = gleiche_an(konfiguration, kandidaten, vorrat)
+        if eintrag:
+            protokoll.append(eintrag)
+            print(f"  Hashtags angleichen: {bericht(eintrag)}")
+        ergebnis = []
+        for h in tags:
+            ersatz = zuordnung.get(h)
+            if ersatz:
+                angeglichen.append(f"#{h} → #{ersatz}")
+                h = ersatz
+            if vergleichsform(h) not in {vergleichsform(t) for t in ergebnis}:
+                ergebnis.append(h)
+        tags = ergebnis
+        neu = [h for h in tags if vergleichsform(h) not in schreibweise and vergleichsform(h) not in zweck_tags]
+        print(f"Hashtags: {' '.join('#' + t for t in tags)}")
+        print(f"  neu: {' '.join('#' + t for t in neu) or 'keine'}; angeglichen: {', '.join(angeglichen) or 'keine'}; "
+              f"{len(vorrat)} vorhandene im Abgleich")
+
     roh_pfad = Path(konfiguration["pfade"]["daten"]) / "auswertungen" / meta["quelle"] / f"{audio.stem}.json"
     roh_pfad.parent.mkdir(parents=True, exist_ok=True)
     roh_pfad.write_text(json.dumps(protokoll, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -431,13 +552,7 @@ def main():
         print("Nichts Relevantes gefunden, keine Notiz geschrieben.")
         return
 
-    tags = [PROFIL_ABSCHNITTE[meta["zweck"]]]
-    for h in hashtags:
-        h = sauberer_hashtag(h)
-        if h and h not in tags:
-            tags.append(h)
-
-    ziel = notizen / "inhalt" / "notizen" / f"{audio.stem}.md"
+    ziel = notizordner / f"{audio.stem}.md"
     schreibe_notiz(ziel, meta, fmt_kennung, funde, tags, quelle.get("sprunglink"))
     print(f"{len(funde)} Einträge, Notiz: {ziel}")
 
