@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>{{ if not .IsHome }}{{ .Title }} · {{ end }}{{ site.Title }}</title>
+<title>{{ if not .IsHome }}{{ partial "seitentitel.html" . }} · {{ end }}{{ site.Title }}</title>
 {{ with .OutputFormats.Get "rss" }}<link rel="alternate" type="application/rss+xml" href="{{ .Permalink }}" title="{{ site.Title }}">{{ end }}
 <link rel="stylesheet" href="{{ "pagefind/pagefind-ui.css" | relURL }}">
 <style>

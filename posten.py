@@ -64,7 +64,7 @@ def erster_beitrag(kopf, formatname, link):
     titel = str(kopf["title"])
 
     def basis(titel):
-        return f"Neu im Lesesaal: {formatname}\n\n{titel}\n{kopf.get('quelle', '')}, {t}.{m}.{j}\n\n{link}"
+        return f"Neu im Lesesaal: {formatname}\n\n{titel}\n{kopf.get('quelle_name') or kopf.get('quelle', '')}, {t}.{m}.{j}\n\n{link}"
 
     zu_lang = laenge(basis(titel)) - GRENZE
     if zu_lang > 0:

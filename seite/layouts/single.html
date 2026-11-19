@@ -1,7 +1,7 @@
 {{ define "main" }}
 <article data-pagefind-body>
   <h1>{{ .Title }}</h1>
-  <p class="meta">{{ .Date.Format "02.01.2006" }}{{ with .Params.quelle }} · {{ . }}{{ end }}{{ with .Params.format }} · {{ index site.Params.formate . }}{{ end }}{{ with .Params.status }} · <span class="status">{{ . }}</span>{{ end }}</p>
+  <p class="meta">{{ .Date.Format "02.01.2006" }}{{ with .Params.quelle_name | default .Params.quelle }} · {{ . }}{{ end }}{{ with .Params.format }} · {{ index site.Params.formate . }}{{ end }}{{ with .Params.status }} · <span class="status">{{ . }}</span>{{ end }}</p>
   {{ .Content }}
   <p class="tags">{{ range .GetTerms "tags" }}<a href="{{ .RelPermalink }}">#{{ .LinkTitle }}</a>{{ end }}</p>
 </article>

@@ -1,0 +1,14 @@
+{{- /* Titel einer Seite. Quellen und Formate tragen als Begriff ihre Kennung,
+       angezeigt wird der Name: bei Quellen aus quelle_name der Notizen,
+       bei Formaten aus params.formate in hugo.toml. */ -}}
+{{- $titel := .Title -}}
+{{- if eq .Kind "term" -}}
+  {{- if eq .Data.Plural "quelle" -}}
+    {{- with index .Pages 0 -}}{{- with .Params.quelle_name -}}{{- $titel = . -}}{{- end -}}{{- end -}}
+  {{- else if eq .Data.Plural "format" -}}
+    {{- with index site.Params.formate .Data.Term -}}{{- $titel = . -}}{{- end -}}
+  {{- end -}}
+{{- else if eq .Kind "taxonomy" -}}
+  {{- with index (dict "tags" "Hashtags" "quelle" "Quellen" "format" "Formate") .Data.Plural -}}{{- $titel = . -}}{{- end -}}
+{{- end -}}
+{{- return $titel -}}

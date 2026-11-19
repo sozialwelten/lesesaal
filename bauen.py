@@ -12,10 +12,15 @@ Auf dem Webspace entsteht:
   /index.html          leere Seite
   /robots.txt          sperrt Suchmaschinen aus
   /GEHEIMER_PFAD/      die eigentliche Seite
+
+Der Ordner mit dem geheimen Pfad wird vor jedem Bauen gelöscht und komplett neu
+erzeugt. So verschwinden Seiten, die es nicht mehr gibt, auch aus Suchindex und
+Webspace. Hugos --cleanDestinationDir räumt ohne Ordner für statische Dateien nicht auf.
 """
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -49,11 +54,14 @@ def main():
     quelle = PROJEKT / "seite"
 
     if args.vorschau:
-        subprocess.run(
-            ["hugo", "server", "--source", str(quelle), "--contentDir", str(inhalt),
-             "--baseURL", "http://localhost:1313/"],
-            check=False,
-        )
+        try:
+            subprocess.run(
+                ["hugo", "server", "--source", str(quelle), "--contentDir", str(inhalt),
+                 "--baseURL", "http://localhost:1313/"],
+                check=False,
+            )
+        except KeyboardInterrupt:
+            print("\nVorschau beendet.")
         return
 
     env = lies_env()
@@ -61,10 +69,14 @@ def main():
     adresse = f"{konfiguration['seite']['adresse'].rstrip('/')}/{geheim}/"
     wurzel = Path(konfiguration["pfade"]["daten"]) / "seite"
     ziel = wurzel / geheim
+    if not geheim.replace("-", "").replace("_", "").isalnum():
+        raise SystemExit("GEHEIMER_PFAD in der .env fehlt oder ist kein einfacher Ordnername.")
+    if ziel.exists():
+        shutil.rmtree(ziel)
 
     subprocess.run(
         ["hugo", "--source", str(quelle), "--contentDir", str(inhalt), "--destination", str(ziel),
-         "--baseURL", adresse, "--cleanDestinationDir", "--minify", "--quiet"],
+         "--baseURL", adresse, "--minify", "--quiet"],
         check=True,
     )
     subprocess.run(["pagefind", "--site", str(ziel), "--silent"], check=True)

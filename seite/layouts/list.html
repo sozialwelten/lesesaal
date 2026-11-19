@@ -12,13 +12,13 @@
   </script>
   {{ $seiten = where site.RegularPages "Section" "notizen" }}
 {{ else }}
-  <h1>{{ .Title }}</h1>
+  <h1>{{ partial "seitentitel.html" . }}</h1>
 {{ end }}
 <ul class="liste">
 {{ range $seiten.ByDate.Reverse }}
   <li>
     <a href="{{ .RelPermalink }}">{{ .Title }}</a><br>
-    <span class="meta">{{ .Date.Format "02.01.2006" }}{{ with .Params.quelle }} · {{ . }}{{ end }}{{ with .Params.format }} · {{ index site.Params.formate . }}{{ end }}{{ with .Params.status }} · <span class="status">{{ . }}</span>{{ end }}</span>
+    <span class="meta">{{ .Date.Format "02.01.2006" }}{{ with .Params.quelle_name | default .Params.quelle }} · {{ . }}{{ end }}{{ with .Params.format }} · {{ index site.Params.formate . }}{{ end }}{{ with .Params.status }} · <span class="status">{{ . }}</span>{{ end }}</span>
   </li>
 {{ end }}
 </ul>

@@ -2,7 +2,7 @@
 # Inhalte, Adresse und Zielordner übergibt bauen.py beim Aufruf.
 
 title = "Lesesaal"
-languageCode = "de-de"
+locale = "de-de"
 defaultContentLanguage = "de"
 capitalizeListTitles = false
 disableKinds = ["sitemap"]
