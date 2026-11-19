@@ -42,3 +42,39 @@ temperatur_weiter = 70           # unter dieser Temperatur aller Karten geht es 
 fehlversuche = 3                 # danach bleibt eine Folge liegen
 bericht_an = "sozialwelten"      # Empfangskonto der Direktnachricht auf ifwo.eu
 bericht_als_direktnachricht = true
+
+[[quelle]]
+kennung = "freakshow"
+name = "Freakshow"
+typ = "podcast"
+feed = "https://freakshow.fm/feed/mp3"
+sprache = "de"
+zweck = "tech"
+rueckstand = 1
+
+[[quelle]]
+kennung = "chaosradio"
+name = "Chaosradio"
+typ = "podcast"
+feed = "https://chaosradio.de/feed/m4a"
+sprache = "de"
+zweck = "tech"
+rueckstand = 1
+
+[[quelle]]
+kennung = "nerdsfm"
+name = "nerds fm"
+typ = "podcast"
+feed = "https://nerdsfm.de/feed/mp3/"
+sprache = "de"
+zweck = "tech"
+rueckstand = 1
+
+[[quelle]]
+kennung = "damals-tm"
+name = "damals(tm)"
+typ = "podcast"
+feed = "https://damals-tm-podcast.de/?feed=damalstm-mp3"
+sprache = "de"
+zweck = "tech"
+rueckstand = 1
