@@ -18,10 +18,15 @@ Ablauf:
   5. Markdown-Notiz nach NOTIZEN/inhalt/notizen/ schreiben, gegliedert in Teile.
 
 Die rohen Antworten des Modells landen unter DATEN/auswertungen/<quelle>/.
+
+Mit --stoppdatei prüft das Skript vor jedem Abschnitt, ob das Stoppsignal gesetzt ist. Dann
+schätzt es die restliche Dauer. Passt sie in --hoechstens Minuten, macht es fertig, sonst
+bricht es mit Exit-Code 3 ab, ohne Notiz. So nutzt es tagesbetrieb.py.
 """
 
 import argparse
 import json
+import sys
 import re
 import time
 import tomllib
@@ -39,6 +44,9 @@ MIN_RELEVANZ = 3
 MIN_RELEVANZ_THESEN = 4
 ZUM_ZUSAMMENFUEHREN_PRO_LISTE = 15
 DENKEN_HOECHSTENS = 4000
+SEKUNDEN_PRO_ABSCHNITT = 150  # Schätzung, solange noch kein Abschnitt gemessen ist
+SEKUNDEN_ZUSAMMENFUEHREN = 150
+ABGEBROCHEN = 3
 VORHANDENE_HOECHSTENS = 300  # so viele vorhandene Hashtags, die häufigsten zuerst, gehen in den Abgleich
 PROFIL_ABSCHNITTE = {"tech": "Tech", "lernstoff": "Lernstoff", "theorie": "Theorie", "finanzen": "Finanzen"}
 
@@ -415,6 +423,8 @@ def pruefe(k, von, bis, gruende):
 def main():
     parser = argparse.ArgumentParser(description="Transkript auswerten und Notiz schreiben")
     parser.add_argument("transkript", type=Path, help="JSON-Datei unter DATEN/transkripte/<quelle>/")
+    parser.add_argument("--stoppdatei", type=Path, help="bei gesetztem Stoppsignal fertig machen oder abbrechen")
+    parser.add_argument("--hoechstens", type=float, default=10, help="Minuten, die nach dem Stoppsignal noch erlaubt sind")
     args = parser.parse_args()
 
     with open(PROJEKT / "config.toml", "rb") as datei:
@@ -442,7 +452,16 @@ def main():
     aufgabe = aufgabe_abschnitt(fmt)
     behalten = {name: [] for name in fmt["listen"]}
     protokoll, nr = [], 0
+    beginn, fertig_machen = time.monotonic(), False
     while warteschlange:
+        if args.stoppdatei and not fertig_machen and args.stoppdatei.exists():
+            je_abschnitt = (time.monotonic() - beginn) / nr if nr else SEKUNDEN_PRO_ABSCHNITT
+            rest = je_abschnitt * len(warteschlange) + SEKUNDEN_ZUSAMMENFUEHREN
+            if rest > args.hoechstens * 60:
+                print(f"Stoppsignal: noch etwa {rest / 60:.0f} Minuten, Auswertung wird abgebrochen.", flush=True)
+                sys.exit(ABGEBROCHEN)
+            print(f"Stoppsignal: noch etwa {rest / 60:.0f} Minuten, Auswertung wird fertig gemacht.", flush=True)
+            fertig_machen = True
         gruppe = warteschlange.pop(0)
         von, bis = gruppe[0]["start"], gruppe[-1]["ende"]
         inhalt = (

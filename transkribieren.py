@@ -9,6 +9,10 @@ Ergebnis unter DATEN/transkripte/<quelle>/:
   <name>.txt   Text mit Zeitmarken zum Lesen
 
 Das Audio dekodiert ffmpeg aus dem System, nicht PyAV.
+
+Mit --stoppdatei prüft das Skript laufend, ob das Stoppsignal gesetzt ist. Dann schätzt es
+die restliche Dauer. Passt sie in --hoechstens Minuten, macht es fertig, sonst bricht es mit
+Exit-Code 3 ab. So nutzt es tagesbetrieb.py.
 """
 
 import os
@@ -42,6 +46,7 @@ from faster_whisper import WhisperModel  # noqa: E402
 
 PROJEKT = Path(__file__).resolve().parent
 ABTASTRATE = 16000
+ABGEBROCHEN = 3
 
 
 def zeitmarke(sekunden):
@@ -64,6 +69,8 @@ def main():
     parser.add_argument("datei", type=Path, help="Audiodatei unter DATEN/audio/<quelle>/")
     parser.add_argument("--sprache", help="Sprache erzwingen, etwa de oder en")
     parser.add_argument("--neu", action="store_true", help="vorhandenes Transkript überschreiben")
+    parser.add_argument("--stoppdatei", type=Path, help="bei gesetztem Stoppsignal fertig machen oder abbrechen")
+    parser.add_argument("--hoechstens", type=float, default=10, help="Minuten, die nach dem Stoppsignal noch erlaubt sind")
     args = parser.parse_args()
 
     with open(PROJEKT / "config.toml", "rb") as datei:
@@ -101,6 +108,7 @@ def main():
 
     abschnitte = []
     naechste_meldung = 0
+    fertig_machen = False
     for abschnitt in abschnitte_roh:
         abschnitte.append({
             "start": round(abschnitt.start, 2),
@@ -108,8 +116,16 @@ def main():
             "text": abschnitt.text.strip(),
         })
         if abschnitt.end >= naechste_meldung:
-            print(f"  {zeitmarke(abschnitt.end)} von {zeitmarke(dauer)}")
+            print(f"  {zeitmarke(abschnitt.end)} von {zeitmarke(dauer)}", flush=True)
             naechste_meldung += 300
+        if args.stoppdatei and not fertig_machen and args.stoppdatei.exists() and abschnitt.end > 0:
+            verstrichen = time.monotonic() - beginn
+            rest = verstrichen * (dauer - abschnitt.end) / abschnitt.end
+            if rest > args.hoechstens * 60:
+                print(f"Stoppsignal: noch etwa {rest / 60:.0f} Minuten, Transkription wird abgebrochen.", flush=True)
+                sys.exit(ABGEBROCHEN)
+            print(f"Stoppsignal: noch etwa {rest / 60:.0f} Minuten, Transkription wird fertig gemacht.", flush=True)
+            fertig_machen = True
     laufzeit = time.monotonic() - beginn
 
     ziel.mkdir(parents=True, exist_ok=True)

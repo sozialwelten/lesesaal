@@ -33,3 +33,12 @@ formate = [{muster = "On The Record", format = "gespraech"}, {muster = "Off The 
 
 [seite]
 adresse = "https://lesesaal.fedihive.de"
+
+[betrieb]
+rueckstand = 3                   # ältere Folgen je Quelle beim ersten Lauf; je Quelle überschreibbar
+stopp_hoechstens_minuten = 10    # so lange darf ein Schritt nach dem Stoppsignal noch laufen
+temperatur_pause = 83            # ab dieser Temperatur einer Karte wird angehalten
+temperatur_weiter = 70           # unter dieser Temperatur aller Karten geht es weiter
+fehlversuche = 3                 # danach bleibt eine Folge liegen
+bericht_an = "sozialwelten"      # Empfangskonto der Direktnachricht auf ifwo.eu
+bericht_als_direktnachricht = true
