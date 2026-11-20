@@ -116,6 +116,16 @@ class Betrieb:
             "notiz": self.notizen / f"{stem}.md",
         }
 
+    def quellenname(self, kennung):
+        return next((q["name"] for q in self.konf["quelle"] if q["kennung"] == kennung), kennung)
+
+    def nach_quelle(self):
+        """Neue Notizen gruppiert: [(Quelle, [Titel, ...]), ...] in der Reihenfolge des Auftretens."""
+        gruppen = {}
+        for quelle, titel in self.neue_notizen:
+            gruppen.setdefault(quelle, []).append(titel)
+        return list(gruppen.items())
+
     def gepostet(self):
         pfad = self.daten / "gepostet.json"
         return json.loads(pfad.read_text(encoding="utf-8")) if pfad.exists() else {}
@@ -355,7 +365,7 @@ class Betrieb:
                     self.scheitert(folge, f"Posten mit Exit-Code {code}")
                     continue
             self.setze(folge, "veroeffentlicht")
-            self.neue_notizen.append(folge["titel"])
+            self.neue_notizen.append((self.quellenname(folge["quelle"]), folge["titel"]))
         self.notizen_committen(warteschlange)
 
     def notizen_committen(self, folgen):
@@ -394,7 +404,9 @@ class Betrieb:
         if self.gpu_anteil is not None:
             zeilen.append(f"- Modell auf den Grafikkarten: {self.gpu_anteil} %")
         if self.neue_notizen:
-            zeilen += ["", "## Neue Notizen", ""] + [f"- {t}" for t in self.neue_notizen]
+            zeilen += ["", "## Neue Notizen"]
+            for quelle, titel in self.nach_quelle():
+                zeilen += ["", f"{quelle}:"] + [f"- {t}" for t in titel]
         if self.fehler:
             zeilen += ["", "## Fehler", ""] + [f"- {t}" for t in self.fehler]
         if liegen:
@@ -413,21 +425,35 @@ class Betrieb:
         teile = [
             f"@{self.einst['bericht_an']} Lesesaal-Lauf {self.beginn:%d.%m.} {self.beginn:%H:%M} bis {datetime.now():%H:%M}"
             + (", gestoppt" if self.gestoppt else ""),
-            f"{len(self.neue_notizen)} neue Notizen, {self.heute['ohne_funde']} ohne Funde, {offen} offen, "
+            f"{len(self.neue_notizen)} {'neue Notiz' if len(self.neue_notizen) == 1 else 'neue Notizen'}, "
+            f"{self.heute['ohne_funde']} ohne Funde, {offen} offen, "
             f"{len(self.fehler)} Fehler" + (f", {len(liegen)} liegen geblieben" if liegen else ""),
         ]
         if self.pausen:
             teile.append(f"Temperaturpausen: {len(self.pausen)}, {pausen_min:.0f} Minuten")
         if self.gpu_anteil is not None and self.gpu_anteil < 100:
             teile.append(f"Modell nur zu {self.gpu_anteil} % auf den Grafikkarten")
-        text = "\n".join(teile)
-        for titel in self.neue_notizen:
-            if len(text) + len(titel) + 3 > 490:
-                text += "\n…"
-                break
-            text += f"\n- {titel}"
         try:
             env = lies_env()
+            link = f"{self.konf['seite']['adresse'].rstrip('/')}/{env['GEHEIMER_PFAD']}/"
+        except (KeyError, SystemExit):
+            env, link = {}, ""
+        text = "\n".join(teile)
+        platz = 490 - (25 if link else 0)  # Mastodon zählt einen Link mit 23 Zeichen
+        voll = False
+        for quelle, titel_liste in self.nach_quelle():
+            for nr, titel in enumerate(titel_liste):
+                zusatz = (f"\n\n{quelle}:" if nr == 0 else "") + f"\n- {titel}"
+                if len(text) + len(zusatz) > platz:
+                    voll = True
+                    break
+                text += zusatz
+            if voll:
+                text += "\n…"
+                break
+        if link:
+            text += f"\n\n{link}"
+        try:
             antwort = requests.post(
                 f"{env['MASTODON_ADRESSE'].rstrip('/')}/api/v1/statuses",
                 headers={"Authorization": f"Bearer {env['MASTODON_TOKEN']}",
