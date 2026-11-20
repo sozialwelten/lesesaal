@@ -156,3 +156,48 @@ zweck = "finanzen"
 format = "finanzen"
 sprunglink = "&t={sekunden}s"
 rueckstand = 1
+
+[[quelle]]
+kennung = "das-neue-berlin"
+name = "Das Neue Berlin"
+typ = "podcast"
+feed = "https://dasneue.berlin/feed/m4a/"
+sprache = "de"
+zweck = "theorie"
+format = "gespraech"
+rueckstand = 3
+vorauswahl = true
+
+[[quelle]]
+kennung = "future-histories"
+name = "Future Histories"
+typ = "podcast"
+feed = "https://feed.podbean.com/futurehistories/feed.xml"
+zweck = "theorie"
+format = "gespraech"
+rueckstand = 3
+vorauswahl = true
+
+[[quelle]]
+kennung = "vero"
+name = "Mit Vero zum Bilanzbuchhalter"
+typ = "podcast"
+feed = "https://anchor.fm/s/eaa6bd60/podcast/rss"
+sprache = "de"
+zweck = "lernstoff"
+format = "lernstoff"
+rueckstand = 65
+
+[[quelle]]
+kennung = "alexis-dean"
+name = "Alexis and Dean"
+typ = "tiktok"
+konto = "alexisanddean"
+sprache = "en"
+zweck = "finanzen"
+format = "finanzen"
+rueckstand = 3
+hoechstens_pro_lauf = 3
+vorauswahl = true
+vorauswahl_ab = 4
+ohne_titel_mit = ["#ad"]

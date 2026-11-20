@@ -110,7 +110,27 @@ FORMATE["finanzen"] = {
         },
     },
 }
-OHNE_NAMEN = {"These", "Begriff"}
+FORMATE["lernstoff"] = {
+    "name": "Lernnotiz",
+    "profil": ["Lernstoff"],
+    "listen": {
+        "thesen": {
+            "arten": ["Begriff", "Regel", "Methode"],
+            "was": "Fachbegriffe, Regeln und Verfahren aus Buchhaltung, Bilanzierung, Steuern und Recht, "
+                   "die in der Folge erklärt werden, so beschrieben, dass sie ohne die Folge verständlich sind",
+            "pro_abschnitt": 4,
+            "hoechstens": 10,
+        },
+        "hinweise": {
+            "arten": ["Gesetz", "Standard", "Literatur", "Werkzeug", "Organisation"],
+            "was": "Gesetze und Paragraphen, Rechnungslegungsstandards, Literatur, Werkzeuge und "
+                   "Organisationen, die genannt werden",
+            "pro_abschnitt": 4,
+            "hoechstens": 8,
+        },
+    },
+}
+OHNE_NAMEN = {"These", "Begriff", "Regel", "Methode"}
 REIHENFOLGE = ["Thesen und Begriffe", "Hinweise", "Literatur"]
 
 FELDER = """Fülle für jeden Eintrag diese Felder ehrlich aus:

@@ -255,7 +255,7 @@ class Betrieb:
     def finden(self):
         log("Feeds abfragen")
         for quelle in self.konf["quelle"]:
-            if quelle.get("typ", "podcast") not in ("podcast", "youtube") or quelle.get("aktiv", True) is False:
+            if quelle.get("typ", "podcast") not in ("podcast", "youtube", "tiktok") or quelle.get("aktiv", True) is False:
                 continue
             try:
                 folgen = lies_feed(quelle)
@@ -263,6 +263,8 @@ class Betrieb:
                 self.fehler.append(f"Feed {quelle['kennung']}: {fehler}")
                 log(f"  FEHLER bei {quelle['kennung']}: {fehler}")
                 continue
+            ausschluss = [w.lower() for w in quelle.get("ohne_titel_mit", [])]
+            folgen = [f for f in folgen if not any(w in f["titel"].lower() for w in ausschluss)]
             bekannt = [f for f in self.stand.values() if f["quelle"] == quelle["kennung"]]
             bekannte_dateien = {f["datei"] for f in bekannt}
             if bekannt:

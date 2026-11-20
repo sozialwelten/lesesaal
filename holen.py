@@ -10,7 +10,10 @@ Quellen mit typ = "youtube" und kanal_id lesen den RSS-Feed des Kanals. Shorts w
 übersprungen. Geladen wird nur die Tonspur, mit yt-dlp. Vorher prüft yt-dlp, ob das Video
 gerade live oder angekündigt ist (dann später erneut versuchen), ob es ein aufgezeichneter
 Livestream ist (überspringen bei ohne_livestreams = true) und ob es länger ist als
-hoechstdauer_minuten (überspringen). Bei Videos bleibt die Angabe url
+hoechstdauer_minuten (überspringen).
+
+Quellen mit typ = "tiktok" und konto listen die neuesten Videos über yt-dlp, weil TikTok keinen
+Feed hat. Geladen wird wie bei YouTube. Bei Videos bleibt die Angabe url
 leer, damit die Notiz keinen Audio-Player bekommt. Die Zeitmarken verlinken dann über
 sprunglink auf das Video.
 """
@@ -60,6 +63,8 @@ def feed_adresse(quelle):
 def lies_feed(quelle):
     if quelle.get("typ") == "youtube":
         return lies_youtube(quelle)
+    if quelle.get("typ") == "tiktok":
+        return lies_tiktok(quelle)
     feed = feedparser.parse(quelle["feed"], agent=KENNUNG_PROGRAMM)
     if not feed.entries:
         raise SystemExit(f"Feed leer oder nicht lesbar: {quelle['feed']}")
@@ -101,6 +106,35 @@ def lies_youtube(quelle):
             "video": True,
             "endung": ".m4a",
         })
+    return folgen
+
+
+def lies_tiktok(quelle, anzahl=30):
+    adresse = f"https://www.tiktok.com/@{quelle['konto']}"
+    ergebnis = subprocess.run(
+        ["yt-dlp", "--quiet", "--no-warnings", "--flat-playlist", "--playlist-items", f"1:{anzahl}",
+         "--print", "%(timestamp)s\t%(duration)s\t%(webpage_url)s\t%(title)s", adresse],
+        capture_output=True, text=True, timeout=300,
+    )
+    folgen = []
+    for zeile in ergebnis.stdout.splitlines():
+        teile = zeile.split("\t", 3)
+        if len(teile) < 4 or not teile[0].isdigit():
+            continue
+        stempel, dauer, seite, titel = teile
+        folgen.append({
+            "titel": " ".join(titel.split())[:150] or "ohne Titel",
+            "datum": time.strftime("%Y-%m-%d", time.gmtime(int(stempel))),
+            "dauer": dauer if dauer != "NA" else "",
+            "bytes": 0,
+            "url": "",
+            "seite": seite,
+            "video": True,
+            "endung": ".mp4",
+        })
+    if not folgen:
+        fehler = (ergebnis.stderr or "keine Videos gefunden").strip()[-300:]
+        raise SystemExit(f"TikTok {quelle['konto']}: {fehler}")
     return folgen
 
 
@@ -156,7 +190,7 @@ def lade_video(folge, ziel, quelle):
     teil = ziel.with_suffix(ziel.suffix + ".teil")
     ergebnis = subprocess.run(
         ["yt-dlp", "--quiet", "--no-warnings", "--no-playlist", "--match-filter", "!is_live",
-         "-f", "bestaudio[ext=m4a]/bestaudio",
+         "-f", "bestaudio[ext=m4a]/bestaudio/best",
          "--force-overwrites", "-o", str(teil), folge["seite"]],
         capture_output=True, text=True,
     )
