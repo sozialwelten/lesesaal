@@ -182,3 +182,7 @@ DATEN/
 - Transkription mit gut 13-facher Echtzeit, Auswertung rund 11 Minuten pro Stunde Audio. Eine Folge von vier Stunden braucht zusammen gut eine Stunde.
 - Erster Tageslauf: 14 Folgen aus sechs Podcasts, rund 24 Stunden Audio, in gut sechs Stunden, ohne Fehler und ohne Temperaturpause.
 - Offene Desktop-Programme mit Grafikbeschleunigung (Browser, Office) verdrängen einen Teil des Modells auf den Prozessor. Dann wird die Auswertung etwa dreimal langsamer. Der Tagesbetrieb prüft das über die Schnittstelle von Ollama und warnt im Bericht.
+
+## Lizenz
+
+GNU General Public License v3.0, siehe `LICENSE`.
