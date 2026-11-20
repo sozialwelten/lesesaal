@@ -101,6 +101,7 @@ sprunglink = "&t={sekunden}s"
 rueckstand = 1
 hoechstens_pro_lauf = 1
 vorauswahl = true
+ohne_livestreams = true
 
 [[quelle]]
 kennung = "patrick-boyle"
