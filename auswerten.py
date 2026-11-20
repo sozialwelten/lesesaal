@@ -7,11 +7,13 @@ Ablauf:
   1. Format wählen: Regeln der Quelle in config.toml nach Folgentitel, sonst Format der Quelle.
   2. Transkript in Abschnitte teilen, Zeitmarken höchstens alle 30 Sekunden. Pro Abschnitt
      sammelt das Modell Einträge in getrennten Listen (etwa Thesen und Hinweise) und ordnet
-     jeden ein. Gefiltert wird im Code. Läuft ein Abschnitt fast über den Kontext, wird er
-     geteilt und neu ausgewertet.
-  3. Die relevantesten Einträge jeder Liste führt das Modell mit Nachdenken zusammen
-     und vergibt Hashtags, frei aus den Einträgen der Folge.
-  4. Hashtags angleichen: Der Code übernimmt die Schreibweise vorhandener Hashtags, wenn sie
+     jeden ein. Zu jedem Eintrag nennt es eine wörtliche Belegstelle. Der Code sucht sie im
+     Transkript. Fehlt sie oder steht kein Wort des Titels in ihrer Nähe, fällt der Eintrag weg.
+     Die Zeitmarke kommt aus der gefundenen Stelle. Gefiltert wird im Code. Läuft ein Abschnitt
+     fast über den Kontext, wird er geteilt und neu ausgewertet.
+  3. Die relevantesten Einträge jeder Liste führt das Modell mit Nachdenken zusammen.
+  4. Hashtags vergibt ein eigener Durchgang, der nur die fertigen Einträge sieht und nicht das
+     Interessenprofil. Danach angleichen: Der Code übernimmt die Schreibweise vorhandener Hashtags, wenn sie
      sich nur in Groß- und Kleinschreibung oder Umlauten unterscheiden. Für die übrigen fragt
      ein kurzer Durchgang ohne Nachdenken, ob ein vorhandener Hashtag dasselbe meint, etwa KI
      und KuenstlicheIntelligenz. Nur dann wird ersetzt. Neue Hashtags bleiben erlaubt.
@@ -47,6 +49,8 @@ DENKEN_HOECHSTENS = 4000
 SEKUNDEN_PRO_ABSCHNITT = 150  # Schätzung, solange noch kein Abschnitt gemessen ist
 SEKUNDEN_ZUSAMMENFUEHREN = 150
 ABGEBROCHEN = 3
+BELEG_ANTEIL = 0.6
+BELEG_UMFELD_SEKUNDEN = 60
 VORHANDENE_HOECHSTENS = 300  # so viele vorhandene Hashtags, die häufigsten zuerst, gehen in den Abgleich
 PROFIL_ABSCHNITTE = {"tech": "Tech", "lernstoff": "Lernstoff", "theorie": "Theorie", "finanzen": "Finanzen"}
 
@@ -94,6 +98,7 @@ FELDER = """Fülle für jeden Eintrag diese Felder ehrlich aus:
 - titel: der Name, bei Thesen die These in wenigen Worten. Höchstens acht Wörter, ohne Klammern.
 - art: eine der Arten, die für die Liste vorgegeben sind. Bücher, Aufsätze und Studien haben immer die Art Literatur.
 - beschreibung: ein bis drei Sätze auf Deutsch, nur was im Text gesagt wird. Bei Terminen und Veranstaltungen Datum und Ort, wenn genannt. Kein eigenes Wissen ergänzen.
+- beleg: ein wörtliches Stück aus dem Text, drei bis acht Wörter, genau so, wie es im Transkript steht, an der Stelle, an der der Eintrag vorkommt. Nicht umformulieren, nicht übersetzen.
 - hashtags: ein bis drei deutsche Schlagwörter ohne Raute, zusammengeschrieben mit großem Anfangsbuchstaben.
 - konkreter_name: true, wenn er einen eigenen Namen hat, etwa eine Software, ein Projekt, eine Initiative, eine Organisation oder ein Buch. false bei allgemeinen Begriffen wie Datenbank, Knowledge Graph oder Sprachmodell. Bei Thesen und Begriffen true.
 - erzaehlung: true, wenn er Teil einer Erzählung, Fiktion oder eines Rollenspiels ist und so in der wirklichen Welt nicht existiert.
@@ -133,8 +138,6 @@ def aufgabe_zusammen(fmt):
         "- titel: ohne Klammerzusätze.\n"
         "- beschreibung: höchstens drei Sätze, gebildet aus den Beschreibungen oben. Kein eigenes Wissen ergänzen.\n"
         "- Zeitmarken nur aus der Liste oben übernehmen.\n"
-        "- hashtags: drei bis sechs deutsche Schlagwörter für die ganze Folge, ohne Raute, zusammengeschrieben "
-        "mit großem Anfangsbuchstaben. Keine Namen von Sendung oder Sender.\n"
     )
 
 
@@ -148,13 +151,14 @@ def schema_abschnitt(fmt):
                 "titel": {"type": "string"},
                 "art": {"type": "string", "enum": liste["arten"]},
                 "beschreibung": {"type": "string"},
+                "beleg": {"type": "string"},
                 "hashtags": {"type": "array", "items": {"type": "string"}},
                 "konkreter_name": {"type": "boolean"},
                 "erzaehlung": {"type": "boolean"},
                 "sendungshinweis": {"type": "boolean"},
                 "relevanz": {"type": "integer", "minimum": 1, "maximum": 5},
             },
-            "required": ["zeitmarke", "titel", "art", "beschreibung", "hashtags",
+            "required": ["zeitmarke", "titel", "art", "beschreibung", "beleg", "hashtags",
                          "konkreter_name", "erzaehlung", "sendungshinweis", "relevanz"],
         }
         eigenschaften[name] = {"type": "array", "items": eintrag}
@@ -175,7 +179,6 @@ def schema_zusammen(fmt):
             "required": ["zeitmarke", "titel", "art", "beschreibung"],
         }
         eigenschaften[name] = {"type": "array", "items": eintrag}
-    eigenschaften["hashtags"] = {"type": "array", "items": {"type": "string"}}
     return {"type": "object", "properties": eigenschaften, "required": list(eigenschaften)}
 
 
@@ -197,6 +200,14 @@ def in_sekunden(marke):
     while len(teile) < 3:
         teile.insert(0, 0)
     return teile[0] * 3600 + teile[1] * 60 + teile[2]
+
+
+def einheitliche_marke(marke):
+    """Bringt eine Zeitmarke vom Modell in die Form hh:mm:ss, etwa „[1:00:25]“ zu „01:00:25“."""
+    try:
+        return zeitmarke(in_sekunden(re.sub(r"[^\d:]", "", str(marke))))
+    except ValueError:
+        return ""
 
 
 def teile_auf(abschnitte):
@@ -357,6 +368,26 @@ def gleiche_an(konfiguration, kandidaten, vorrat):
     return ergebnis, {"schritt": "hashtags angleichen", "antwort": zuordnung, **statistik}
 
 
+def vergib_hashtags(konfiguration, meta, funde):
+    """Hashtags nur aus den fertigen Einträgen, ohne Interessenprofil."""
+    eintraege = "\n".join(f"- {f['titel']} ({f['art']}): {f['beschreibung']}" for f in funde)
+    inhalt = (
+        f"Einträge einer Notiz zur Folge „{meta['titel']}“:\n\n{eintraege}\n\n---\n\n"
+        "Aufgabe: Vergib drei bis sechs Hashtags, die die Themen dieser Einträge beschreiben. "
+        "Nur Themen, die in den Einträgen tatsächlich vorkommen, keine allgemeinen Oberbegriffe, die nicht "
+        "darin stehen. Deutsche Schlagwörter ohne Raute, zusammengeschrieben mit großem Anfangsbuchstaben. "
+        "Eigennamen wie Palantir oder Mastodon dürfen Hashtags sein. Keine Namen von Sendung oder Sender."
+    )
+    schema = {"type": "object", "properties": {"hashtags": {"type": "array", "items": {"type": "string"}}},
+              "required": ["hashtags"]}
+    roh, statistik = frage_modell(konfiguration, inhalt, schema)
+    try:
+        hashtags = [str(h) for h in json.loads(roh).get("hashtags", [])][:6]
+    except json.JSONDecodeError:
+        hashtags = []
+    return hashtags, {"schritt": "hashtags vergeben", "roh": roh, **statistik}
+
+
 def erster_satz(text):
     return re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0][:220]
 
@@ -396,16 +427,47 @@ def schreibe_notiz(pfad, meta, fmt_kennung, funde, hashtags, sprung):
     pfad.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
 
 
-def pruefe(k, von, bis, gruende):
-    """Gibt den Eintrag mit bereinigter Zeitmarke zurück oder None, wenn er herausfällt."""
-    try:
-        sek = in_sekunden(k["zeitmarke"])
-    except (ValueError, KeyError):
-        gruende["Zeitmarke"] += 1
+def woerter(text):
+    return re.findall(r"\w+", text.lower())
+
+
+def finde_beleg(beleg, gruppe):
+    """Sucht die Belegstelle im Abschnitt. Gibt den Index des Whisper-Abschnitts zurück oder None.
+
+    Verglichen wird über ein Fenster aus drei aufeinanderfolgenden Abschnitten. Mindestens
+    60 Prozent der Wörter des Belegs müssen darin vorkommen, und mindestens zwei."""
+    gesucht = [w for w in woerter(beleg) if len(w) > 2]
+    if len(gesucht) < 2:
         return None
+    bester, bester_anteil = None, 0.0
+    for i in range(len(gruppe)):
+        fenster = set(woerter(" ".join(a["text"] for a in gruppe[i:i + 3])))
+        anteil = sum(w in fenster for w in gesucht) / len(gesucht)
+        if anteil > bester_anteil:
+            bester, bester_anteil = i, anteil
+    if bester_anteil < BELEG_ANTEIL:
+        return None
+    # Innerhalb des Fensters der Abschnitt mit den meisten Wörtern des Belegs
+    fenster = range(bester, min(bester + 3, len(gruppe)))
+    return max(fenster, key=lambda j: (len(set(woerter(gruppe[j]["text"])) & set(gesucht)), -j))
+
+
+def titel_in_der_naehe(titel, gruppe, index):
+    """Kommt ein Wort des Titels (die ersten fünf Buchstaben) bis zu einer Minute um die Belegstelle vor?"""
+    mitte = gruppe[index]["start"]
+    umfeld = " ".join(a["text"] for a in gruppe if abs(a["start"] - mitte) <= BELEG_UMFELD_SEKUNDEN).lower()
+    teile = [w[:5] for w in woerter(titel) if len(w) >= 4]
+    return not teile or any(w in umfeld for w in teile)
+
+
+def pruefe(k, gruppe, gruende):
+    """Gibt den Eintrag mit Zeitmarke aus der Belegstelle zurück oder None, wenn er herausfällt."""
     schwelle = MIN_RELEVANZ_THESEN if k.get("art") in OHNE_NAMEN else MIN_RELEVANZ
-    if not von - 5 <= sek <= bis + 5:
-        gruende["Zeitmarke"] += 1
+    index = finde_beleg(k.get("beleg", ""), gruppe)
+    if index is None:
+        gruende["kein Beleg"] += 1
+    elif k.get("art") not in OHNE_NAMEN and not titel_in_der_naehe(k.get("titel", ""), gruppe, index):
+        gruende["Titel nicht am Beleg"] += 1
     elif k.get("art") not in OHNE_NAMEN and not k.get("konkreter_name"):
         gruende["kein Name"] += 1
     elif k.get("erzaehlung"):
@@ -415,7 +477,7 @@ def pruefe(k, von, bis, gruende):
     elif k.get("relevanz", 0) < schwelle:
         gruende["Relevanz"] += 1
     else:
-        k["zeitmarke"] = zeitmarke(sek)
+        k["zeitmarke"] = zeitmarke(gruppe[index]["start"])
         return k
     return None
 
@@ -486,7 +548,7 @@ def main():
         for name in fmt["listen"]:
             for k in antwort.get(name, []):
                 anzahl[name] += 1
-                if pruefe(k, von, bis, gruende):
+                if pruefe(k, gruppe, gruende):
                     behalten[name].append(k)
         gefunden = ", ".join(f"{anzahl[n]} {n}" for n in fmt["listen"])
         weg = ", ".join(f"{n} {g}" for g, n in gruende.items()) or "keine"
@@ -515,21 +577,28 @@ def main():
         try:
             antwort = json.loads(roh)
             for name, liste in fmt["listen"].items():
-                funde += [f for f in antwort.get(name, []) if f.get("zeitmarke") in erlaubt][: liste["hoechstens"]]
-            hashtags = antwort.get("hashtags", [])
+                for f in antwort.get(name, []):
+                    f["zeitmarke"] = einheitliche_marke(f.get("zeitmarke", ""))
+                funde += [f for f in antwort.get(name, []) if f["zeitmarke"] in erlaubt][: liste["hoechstens"]]
             art = "mit Nachdenken"
         except json.JSONDecodeError:
-            zaehler = Counter()
             for name, liste in fmt["listen"].items():
                 beste = sorted(eingereicht[name], key=lambda k: -k["relevanz"])[: liste["hoechstens"]]
                 funde += [{key: k[key] for key in ("zeitmarke", "titel", "art", "beschreibung")} for k in beste]
-                zaehler.update(sauberer_hashtag(h) for k in beste for h in k["hashtags"])
-            hashtags = [h for h, _ in zaehler.most_common(6) if h]
             art = "ERSATZWEISE nach Relevanz, Antwort nicht lesbar"
         funde.sort(key=lambda f: in_sekunden(f["zeitmarke"]))
         uebersicht = ", ".join(f"{len(behalten[n])} {n}" for n in fmt["listen"])
         print(f"  Zusammenführen {art}: aus {uebersicht} wurden {len(funde)} Einträge; {bericht(statistik)}")
         protokoll.append({"schritt": "zusammenführen", "roh": roh, **statistik})
+
+    if funde:
+        hashtags, eintrag = vergib_hashtags(konfiguration, meta, funde)
+        protokoll.append(eintrag)
+        print(f"  Hashtags vergeben: {bericht(eintrag)}")
+        if not hashtags:
+            # Ersatz: die häufigsten Hashtags der Kandidaten aus den Abschnitten
+            zaehler = Counter(sauberer_hashtag(h) for liste in behalten.values() for k in liste for h in k.get("hashtags", []))
+            hashtags = [h for h, _ in zaehler.most_common(6) if h]
 
     tags, angeglichen = [], []
     if funde:
