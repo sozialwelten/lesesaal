@@ -4,6 +4,11 @@ Aufruf:
   .venv/bin/python tagesbetrieb.py              ein Lauf über alle Quellen
   .venv/bin/python tagesbetrieb.py --danach-aus medienlabor nach dem Lauf herunterfahren
   .venv/bin/python tagesbetrieb.py --stand      nur anzeigen, welche Folgen auf welcher Stufe stehen
+  .venv/bin/python tagesbetrieb.py --neu-auswerten alle
+                                                fertige Folgen mit vorhandenem Transkript noch einmal
+                                                auswerten und ihre Notizen überschreiben; statt „alle“
+                                                geht auch eine Quelle oder ein Teil des Dateinamens.
+                                                Threads werden nicht neu gepostet.
 
 Gedacht für den Start per Alias im Hintergrund (lesesaal). Ablauf:
   1. Feeds abfragen. Beim ersten Lauf einer Quelle kommen die neueste Folge und
@@ -75,7 +80,7 @@ class Betrieb:
         self.stand = json.loads(self.stand_pfad.read_text(encoding="utf-8")) if self.stand_pfad.exists() else {}
         self.beginn = datetime.now()
         self.heute = Counter()
-        self.neue_notizen, self.fehler, self.pausen = [], [], []
+        self.neue_notizen, self.aktualisiert, self.fehler, self.pausen = [], [], [], []
         self.gpu_anteil = None
         self.gestoppt = False
 
@@ -134,6 +139,21 @@ class Betrieb:
         return json.loads(pfad.read_text(encoding="utf-8")) if pfad.exists() else {}
 
     # Stopp und Temperatur
+
+    def neu_auswerten(self, auswahl):
+        """Setzt fertige Folgen mit Transkript zurück auf „transkribiert“, damit sie neu ausgewertet werden."""
+        anzahl = 0
+        for schluessel, folge in self.stand.items():
+            if folge["stufe"] not in ("ausgewertet", "veroeffentlicht", "ohne_funde"):
+                continue
+            if auswahl != "alle" and auswahl != folge["quelle"] and auswahl.lower() not in schluessel.lower():
+                continue
+            if not self.pfade(folge)["transkript"].exists():
+                continue
+            folge.update(stufe="transkribiert", neu_auswerten=True, versuche=0, fehler="")
+            anzahl += 1
+        self.speichere()
+        log(f"Neu auswerten: {anzahl} Folgen zurückgesetzt")
 
     def stopp(self):
         if self.stoppdatei.exists():
@@ -393,7 +413,7 @@ class Betrieb:
             if self.stopp():
                 return
             p = self.pfade(folge)
-            if p["notiz"].exists():
+            if p["notiz"].exists() and not folge.get("neu_auswerten"):
                 self.setze(folge, "ausgewertet", notiz=str(p["notiz"]))
                 continue
             self.abkuehlen()
@@ -408,9 +428,9 @@ class Betrieb:
             if code != 0:
                 self.scheitert(folge, f"Auswertung mit Exit-Code {code}")
             elif p["notiz"].exists():
-                self.setze(folge, "ausgewertet", notiz=str(p["notiz"]))
+                self.setze(folge, "ausgewertet", notiz=str(p["notiz"]), neu_auswerten=False)
             else:
-                self.setze(folge, "ohne_funde")
+                self.setze(folge, "ohne_funde", neu_auswerten=False)
 
     def veroeffentlichen(self):
         warteschlange = self.offen("ausgewertet")
@@ -423,13 +443,17 @@ class Betrieb:
             return
         for folge in warteschlange:
             notiz = Path(folge["notiz"])
-            if notiz.stem not in self.gepostet():
+            schon_gepostet = notiz.stem in self.gepostet()
+            if not schon_gepostet:
                 code = self.fuehre_aus([sys.executable, "posten.py", str(notiz), "--senden"], ueberwachen=False)
                 if code != 0:
                     self.scheitert(folge, f"Posten mit Exit-Code {code}")
                     continue
             self.setze(folge, "veroeffentlicht")
-            self.neue_notizen.append((self.quellenname(folge["quelle"]), folge["titel"]))
+            if schon_gepostet:
+                self.aktualisiert.append((self.quellenname(folge["quelle"]), folge["titel"]))
+            else:
+                self.neue_notizen.append((self.quellenname(folge["quelle"]), folge["titel"]))
         self.notizen_committen(warteschlange)
 
     def notizen_committen(self, folgen):
@@ -471,6 +495,8 @@ class Betrieb:
             zeilen += ["", "## Neue Notizen"]
             for quelle, titel in self.nach_quelle():
                 zeilen += ["", f"{quelle}:"] + [f"- {t}" for t in titel]
+        if self.aktualisiert:
+            zeilen += ["", "## Neu ausgewertet", ""] + [f"- {q}: {t}" for q, t in self.aktualisiert]
         if self.fehler:
             zeilen += ["", "## Fehler", ""] + [f"- {t}" for t in self.fehler]
         if liegen:
@@ -490,7 +516,9 @@ class Betrieb:
             f"@{self.einst['bericht_an']} Lesesaal-Lauf {self.beginn:%d.%m.} {self.beginn:%H:%M} bis {datetime.now():%H:%M}"
             + (", gestoppt" if self.gestoppt else ""),
             f"{len(self.neue_notizen)} {'neue Notiz' if len(self.neue_notizen) == 1 else 'neue Notizen'}, "
-            f"{self.heute['ohne_funde']} ohne Funde, {offen} offen, "
+            f"{self.heute['ohne_funde']} ohne Funde, "
+            + (f"{len(self.aktualisiert)} neu ausgewertet, " if self.aktualisiert else "")
+            + f"{offen} offen, "
             f"{len(self.fehler)} Fehler" + (f", {len(liegen)} liegen geblieben" if liegen else ""),
         ]
         if self.pausen:
@@ -544,6 +572,8 @@ def main():
     parser = argparse.ArgumentParser(description="Tagesbetrieb der Lesesaal-Pipeline")
     parser.add_argument("--danach-aus", action="store_true", help="medienlabor nach dem Lauf herunterfahren")
     parser.add_argument("--stand", action="store_true", help="nur den Stand aller Folgen anzeigen")
+    parser.add_argument("--neu-auswerten", metavar="AUSWAHL",
+                        help="fertige Folgen noch einmal auswerten: alle, eine Quelle oder ein Teil des Namens")
     args = parser.parse_args()
 
     with open(PROJEKT / "config.toml", "rb") as datei:
@@ -562,6 +592,8 @@ def main():
     betrieb.stoppdatei.unlink(missing_ok=True)
     print(f"\n===== Tagesbetrieb {betrieb.beginn:%d.%m.%Y %H:%M} =====", flush=True)
     try:
+        if args.neu_auswerten:
+            betrieb.neu_auswerten(args.neu_auswerten)
         betrieb.finden()
         betrieb.laden_und_transkribieren()
         betrieb.auswerten()
