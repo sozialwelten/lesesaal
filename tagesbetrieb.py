@@ -18,8 +18,11 @@ Gedacht für den Start per Alias im Hintergrund (lesesaal). Ablauf:
      gleichzeitig in den Grafikspeicher.
   4. Szene: Ist [szene] aktiv, liest szene.py die Fediverse-Konten aus NOTIZEN/szene.txt und
      schreibt eine Tagesnotiz, die mit veröffentlicht wird.
-  5. Seite bauen, hochladen, je neue Notiz einen Thread posten, Notizen committen.
-  6. Tagesbericht als Datei und als Direktnachricht.
+  5. Termine: Ist [termine] aktiv, sammelt termine.py die Termine aus NOTIZEN/termine.txt und
+     schreibt die Seite „Termine“ samt Kalender termine.ics.
+  6. Seite bauen, hochladen, je neue Notiz einen Thread posten, Notizen committen. Gebaut wird
+     auch, wenn sich nur die Termine geändert haben.
+  7. Tagesbericht als Datei und als Direktnachricht, mit den Terminen der nächsten 48 Stunden.
 
 Stufen je Folge: gefunden, geladen, transkribiert, ausgewertet, veroeffentlicht, ohne_funde.
 Der Stand liegt in DATEN/stand.json. Ein neuer Lauf macht dort weiter, wo der letzte aufhörte.
@@ -85,6 +88,8 @@ class Betrieb:
         self.neue_notizen, self.aktualisiert, self.fehler, self.pausen = [], [], [], []
         self.gpu_anteil = None
         self.gestoppt = False
+        self.termine_geaendert = False
+        self.bald = []
 
     # Stand
 
@@ -464,14 +469,38 @@ class Betrieb:
         }
         self.setze(self.stand[f"szene/{notiz.stem}"], "ausgewertet", notiz=str(notiz))
 
+    def termine(self):
+        """Termine sammeln; hat sich die Seite geändert, wird sie mit veröffentlicht."""
+        if not self.konf.get("termine", {}).get("aktiv") or self.stopp():
+            return
+        repo = self.notizen.parent.parent
+        if not (repo / "termine.txt").exists():
+            log("Termine: keine termine.txt im Notizen-Repository")
+            return
+        log("Termine")
+        ergebnis = subprocess.run([sys.executable, "termine.py"], cwd=PROJEKT, capture_output=True, text=True,
+                                  env=dict(os.environ, PYTHONUNBUFFERED="1"))
+        print(ergebnis.stdout, end="", flush=True)
+        if ergebnis.returncode != 0:
+            self.fehler.append(f"Termine: Exit-Code {ergebnis.returncode}")
+            log(f"  FEHLER: {ergebnis.stderr.strip()[-300:]}")
+            return
+        self.fehler += [f"Termine: {z.strip()[7:]}" for z in ergebnis.stdout.splitlines() if z.strip().startswith("FEHLER")]
+        letzte = ergebnis.stdout.strip().splitlines()[-1] if ergebnis.stdout.strip() else ""
+        self.termine_geaendert = letzte.endswith("index.md")
+        bald = self.daten / "termine" / "bald.json"
+        self.bald = json.loads(bald.read_text(encoding="utf-8")) if bald.exists() else []
+
     def veroeffentlichen(self):
         warteschlange = self.offen("ausgewertet")
-        if not warteschlange:
+        if not warteschlange and not self.termine_geaendert:
             return
-        log(f"Veröffentlichen: {len(warteschlange)} Notizen")
+        log(f"Veröffentlichen: {len(warteschlange)} Notizen" + (", Termine geändert" if self.termine_geaendert else ""))
         if self.fuehre_aus([sys.executable, "bauen.py", "--hochladen"], ueberwachen=False) != 0:
             for folge in warteschlange:
                 self.scheitert(folge, "Bauen oder Hochladen fehlgeschlagen")
+            if not warteschlange:
+                self.fehler.append("Termine: Bauen oder Hochladen fehlgeschlagen")
             return
         for folge in warteschlange:
             notiz = Path(folge["notiz"])
@@ -490,14 +519,18 @@ class Betrieb:
 
     def notizen_committen(self, folgen):
         dateien = [str(Path(f["notiz"]).relative_to(self.notizen.parent.parent)) for f in folgen if f["stufe"] == "veroeffentlicht"]
+        anzahl = len(dateien)
+        if self.termine_geaendert:
+            dateien += ["inhalt/termine/index.md", "inhalt/termine/termine.ics"]
         if not dateien:
             return
         repo = self.notizen.parent.parent
+        nachricht = f"Tagesbetrieb {datetime.now():%d.%m.%Y}: {anzahl} Notizen" + (", Termine" if self.termine_geaendert else "")
         try:
             subprocess.run(["git", "-C", str(repo), "add", "--", *dateien], check=True, capture_output=True)
-            subprocess.run(["git", "-C", str(repo), "commit", "-m", f"Tagesbetrieb {datetime.now():%d.%m.%Y}: "
-                            f"{len(dateien)} Notizen", "--", *dateien], check=True, capture_output=True)
-            log(f"  {len(dateien)} Notizen committet")
+            subprocess.run(["git", "-C", str(repo), "commit", "-m", nachricht, "--", *dateien],
+                           check=True, capture_output=True)
+            log(f"  committet: {nachricht}")
         except subprocess.CalledProcessError as fehler:
             log(f"  Commit der Notizen fehlgeschlagen: {fehler.stderr.decode(errors='replace').strip()}")
 
@@ -523,6 +556,9 @@ class Betrieb:
         ]
         if self.gpu_anteil is not None:
             zeilen.append(f"- Modell auf den Grafikkarten: {self.gpu_anteil} %")
+        if self.bald:
+            zeilen += ["", "## Termine in den nächsten 48 Stunden", ""]
+            zeilen += [f"- {t['zeit']} {t['titel']} ({t['quelle']})" for t in self.bald]
         if self.neue_notizen:
             zeilen += ["", "## Neue Notizen"]
             for quelle, titel in self.nach_quelle():
@@ -564,6 +600,12 @@ class Betrieb:
             env, link = {}, ""
         text = "\n".join(teile)
         platz = 490 - (25 if link else 0)  # Mastodon zählt einen Link mit 23 Zeichen
+        if self.bald:
+            text += "\n\nBald:"
+            for t in self.bald[:4]:
+                text += f"\n- {t['zeit']} {t['titel'][:50]}"
+            if len(self.bald) > 4:
+                text += f"\n- und {len(self.bald) - 4} weitere"
         voll = False
         for quelle, titel_liste in self.nach_quelle():
             for nr, titel in enumerate(titel_liste):
@@ -630,6 +672,7 @@ def main():
         betrieb.laden_und_transkribieren()
         betrieb.auswerten()
         betrieb.szene()
+        betrieb.termine()
         betrieb.veroeffentlichen()
     except Exception as fehler:  # noqa: BLE001
         betrieb.fehler.append(f"Programmfehler: {fehler!r}")

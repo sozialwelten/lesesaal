@@ -1,0 +1,8 @@
+{{ define "main" }}
+{{- range .Resources }}{{ .Publish }}{{ end }}
+<article data-pagefind-body>
+  <h1>{{ .Title }}</h1>
+  <p class="meta">Stand {{ .Date.Format "02.01.2006, 15:04" }} Uhr</p>
+  {{ .Content }}
+</article>
+{{ end }}
