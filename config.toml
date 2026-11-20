@@ -9,6 +9,36 @@ whisper_modell = "/home/apollon/opt/noScribe/models/precise"
 adresse = "http://localhost:11434"
 modell = "qwen3:32b"
 
+[whisper]
+karte = 1
+rechenart = "float16"
+
+[seite]
+adresse = "https://lesesaal.fedihive.de"
+
+[betrieb]
+rueckstand_wochen = 4            # Aufarbeitung je Quelle, wenn dort kein rueckstand steht; 0 schaltet ab
+archiv_bis = "17:00"             # bis zu dieser Uhrzeit werden ältere Folgen aufgearbeitet
+archiv_block = 4                 # so viele ältere Folgen je Block: laden, transkribieren, auswerten, hochladen
+stopp_hoechstens_minuten = 10    # so lange darf ein Schritt nach dem Stoppsignal noch laufen
+temperatur_pause = 83            # ab dieser Temperatur einer Karte wird angehalten
+temperatur_weiter = 70           # unter dieser Temperatur aller Karten geht es weiter
+fehlversuche = 3                 # danach bleibt eine Folge liegen
+bericht_an = "sozialwelten"      # Empfangskonto der Direktnachricht auf ifwo.eu
+bericht_als_direktnachricht = true
+
+[szene]
+aktiv = true
+name = "Fediverse-Szene"
+
+[termine]
+aktiv = true
+tage = 28
+
+# Quellen. rueckstand = Zahl: so viele Folgen vor der neuesten aufarbeiten; rueckstand = "alles":
+# den ganzen Feed; ohne rueckstand gilt rueckstand_wochen. Aufgearbeitete Folgen kommen nur ins
+# Archiv der Seite, nicht auf Mastodon.
+
 [[quelle]]
 kennung = "hyperbandrauschen"
 name = "Hyperbandrauschen"
@@ -18,10 +48,6 @@ sprache = "de"
 zweck = "tech"
 hinweise = "Die c-base erzählt ihre Geschichte als Rahmenerzählung von einer abgestürzten Raumstation aus der Zukunft. Diese Erzählung ist Fiktion und liefert keine Fundstücke. Aufnehmen nur reale Projekte, Technik und Termine."
 
-[whisper]
-karte = 1
-rechenart = "float16"
-
 [[quelle]]
 kennung = "netzpolitik-offon"
 name = "netzpolitik.org Off/On"
@@ -30,18 +56,7 @@ feed = "https://netzpolitik.org/feed/podcast/off-on/"
 sprache = "de"
 zweck = "tech"
 formate = [{muster = "On The Record", format = "gespraech"}, {muster = "Off The Record", format = "tech"}]
-
-[seite]
-adresse = "https://lesesaal.fedihive.de"
-
-[betrieb]
-rueckstand = 3                   # ältere Folgen je Quelle beim ersten Lauf; je Quelle überschreibbar
-stopp_hoechstens_minuten = 10    # so lange darf ein Schritt nach dem Stoppsignal noch laufen
-temperatur_pause = 83            # ab dieser Temperatur einer Karte wird angehalten
-temperatur_weiter = 70           # unter dieser Temperatur aller Karten geht es weiter
-fehlversuche = 3                 # danach bleibt eine Folge liegen
-bericht_an = "sozialwelten"      # Empfangskonto der Direktnachricht auf ifwo.eu
-bericht_als_direktnachricht = true
+rueckstand = 10
 
 [[quelle]]
 kennung = "freakshow"
@@ -50,7 +65,6 @@ typ = "podcast"
 feed = "https://freakshow.fm/feed/mp3"
 sprache = "de"
 zweck = "tech"
-rueckstand = 1
 
 [[quelle]]
 kennung = "chaosradio"
@@ -59,7 +73,6 @@ typ = "podcast"
 feed = "https://chaosradio.de/feed/m4a"
 sprache = "de"
 zweck = "tech"
-rueckstand = 1
 
 [[quelle]]
 kennung = "nerdsfm"
@@ -68,7 +81,6 @@ typ = "podcast"
 feed = "https://nerdsfm.de/feed/mp3/"
 sprache = "de"
 zweck = "tech"
-rueckstand = 1
 
 [[quelle]]
 kennung = "damals-tm"
@@ -77,7 +89,6 @@ typ = "podcast"
 feed = "https://damals-tm-podcast.de/?feed=damalstm-mp3"
 sprache = "de"
 zweck = "tech"
-rueckstand = 1
 
 [[quelle]]
 kennung = "simon-weber"
@@ -88,7 +99,7 @@ sprache = "de"
 zweck = "theorie"
 format = "gespraech"
 sprunglink = "&t={sekunden}s"
-rueckstand = 1
+rueckstand = "alles"
 
 [[quelle]]
 kennung = "mike-levin"
@@ -98,7 +109,6 @@ kanal_id = "UCd26IHBHcbtxD7pUdnIgiCw"
 sprache = "en"
 zweck = "tech"
 sprunglink = "&t={sekunden}s"
-rueckstand = 1
 hoechstens_pro_lauf = 1
 vorauswahl = true
 ohne_livestreams = true
@@ -112,7 +122,6 @@ sprache = "en"
 zweck = "finanzen"
 format = "finanzen"
 sprunglink = "&t={sekunden}s"
-rueckstand = 1
 
 [[quelle]]
 kennung = "economics-explained"
@@ -123,7 +132,7 @@ sprache = "en"
 zweck = "finanzen"
 format = "finanzen"
 sprunglink = "&t={sekunden}s"
-rueckstand = 1
+rueckstand = 20
 
 [[quelle]]
 kennung = "shin-financials"
@@ -134,7 +143,7 @@ sprache = "en"
 zweck = "finanzen"
 format = "finanzen"
 sprunglink = "&t={sekunden}s"
-rueckstand = 1
+rueckstand = 9
 
 [[quelle]]
 kennung = "wissen-hat-keinen-eigentuemer"
@@ -144,7 +153,6 @@ kanal_id = "UCbYoxrOzFUiH8NVPonfSniQ"
 zweck = "finanzen"
 format = "finanzen"
 sprunglink = "&t={sekunden}s"
-rueckstand = 1
 
 [[quelle]]
 kennung = "varoufakis"
@@ -155,7 +163,6 @@ sprache = "en"
 zweck = "finanzen"
 format = "finanzen"
 sprunglink = "&t={sekunden}s"
-rueckstand = 1
 
 [[quelle]]
 kennung = "das-neue-berlin"
@@ -165,8 +172,8 @@ feed = "https://dasneue.berlin/feed/m4a/"
 sprache = "de"
 zweck = "theorie"
 format = "gespraech"
-rueckstand = 3
 vorauswahl = true
+rueckstand = "alles"
 
 [[quelle]]
 kennung = "future-histories"
@@ -175,8 +182,9 @@ typ = "podcast"
 feed = "https://feed.podbean.com/futurehistories/feed.xml"
 zweck = "theorie"
 format = "gespraech"
-rueckstand = 3
 vorauswahl = true
+rueckstand = "alles"
+rueckstand_reihenfolge = "alt_zuerst"
 
 [[quelle]]
 kennung = "vero"
@@ -196,16 +204,7 @@ konto = "alexisanddean"
 sprache = "en"
 zweck = "finanzen"
 format = "finanzen"
-rueckstand = 3
 hoechstens_pro_lauf = 3
 vorauswahl = true
 vorauswahl_ab = 4
 ohne_titel_mit = ["#ad"]
-
-[szene]
-aktiv = true
-name = "Fediverse-Szene"
-
-[termine]
-aktiv = true
-tage = 28

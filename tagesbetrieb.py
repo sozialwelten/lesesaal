@@ -4,6 +4,9 @@ Aufruf:
   .venv/bin/python tagesbetrieb.py              ein Lauf über alle Quellen
   .venv/bin/python tagesbetrieb.py --danach-aus medienlabor nach dem Lauf herunterfahren
   .venv/bin/python tagesbetrieb.py --stand      nur anzeigen, welche Folgen auf welcher Stufe stehen
+  .venv/bin/python tagesbetrieb.py --ohne-archiv  ohne Aufarbeitung älterer Folgen
+  .venv/bin/python tagesbetrieb.py --archiv-bis 15:00
+                                                Aufarbeitung heute nur bis zu dieser Uhrzeit
   .venv/bin/python tagesbetrieb.py --neu-auswerten alle
                                                 fertige Folgen mit vorhandenem Transkript noch einmal
                                                 auswerten und ihre Notizen überschreiben; statt „alle“
@@ -11,8 +14,9 @@ Aufruf:
                                                 Threads werden nicht neu gepostet.
 
 Gedacht für den Start per Alias im Hintergrund (lesesaal). Ablauf:
-  1. Feeds abfragen. Beim ersten Lauf einer Quelle kommen die neueste Folge und
-     `rueckstand` ältere dazu, danach nur Folgen, die neuer sind als die bekannten.
+  1. Feeds abfragen. Beim ersten Lauf einer Quelle kommt die neueste Folge dazu, danach nur
+     Folgen, die neuer sind als die bekannten. Ältere Folgen im Rückstand der Quelle werden
+     zur Aufarbeitung eingetragen (siehe unten).
   2. Laden und transkribieren, neue Folgen zuerst. Die Audiodatei wird danach gelöscht.
   3. Auswerten, erst wenn alles transkribiert ist. Whisper und qwen3:32b passen nicht
      gleichzeitig in den Grafikspeicher.
@@ -23,6 +27,19 @@ Gedacht für den Start per Alias im Hintergrund (lesesaal). Ablauf:
   6. Seite bauen, hochladen, je neue Notiz einen Thread posten, Notizen committen. Gebaut wird
      auch, wenn sich nur die Termine geändert haben.
   7. Tagesbericht als Datei und als Direktnachricht, mit den Terminen der nächsten 48 Stunden.
+  8. Aufarbeitung bis `archiv_bis` (siehe unten).
+
+Aufarbeitung: Je Quelle legt `rueckstand` fest, wie weit es zurückgeht. Eine Zahl heißt so viele
+Folgen vor der neuesten, „alles“ heißt der ganze Feed, sonst gilt `rueckstand_wochen`
+(Vorgabe 4 Wochen, 0 schaltet ab). Bei YouTube wird dafür der Kanal über yt-dlp gelistet,
+weil der Feed nur 15 Videos enthält. Aufgearbeitete Folgen kommen nur ins Archiv der Seite,
+mit ihrem echten Datum: kein Thread, keine Zeile in der Direktnachricht außer dem Fortschritt.
+Gearbeitet wird in Blöcken von `archiv_block` Folgen (laden, transkribieren, auswerten, Seite
+hochladen), bis `archiv_bis` erreicht ist, das Stoppsignal kommt oder nichts mehr offen ist.
+Zuerst kommen die Quellen mit begrenztem Rückstand, neueste zuerst, danach die Quellen mit
+„alles“ reihum. `rueckstand_reihenfolge = "alt_zuerst"` arbeitet eine Quelle von der ältesten
+Folge an auf. Bei Quellen mit Vorauswahl entscheidet das Modell auch rückwirkend, außer bei
+„alles“.
 
 Stufen je Folge: gefunden, geladen, transkribiert, ausgewertet, veroeffentlicht, ohne_funde.
 Der Stand liegt in DATEN/stand.json. Ein neuer Lauf macht dort weiter, wo der letzte aufhörte.
@@ -48,18 +65,21 @@ import sys
 import time
 import tomllib
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from itertools import zip_longest
 from pathlib import Path
 
 import requests
 
 from bauen import PROJEKT, lies_env
-from holen import NochNichtFertig, Uebersprungen, dateiname, lade, lies_feed, schreibe_meta
+from holen import NochNichtFertig, Uebersprungen, dateiname, lade, lies_feed, lies_youtube_alle, schreibe_meta
 
 ABGEBROCHEN = 3
 STUFEN = ["gefunden", "geladen", "transkribiert", "ausgewertet", "veroeffentlicht"]
 VORGABEN = {
-    "rueckstand": 3,
+    "rueckstand_wochen": 4,
+    "archiv_bis": "17:00",
+    "archiv_block": 4,
     "stopp_hoechstens_minuten": 10,
     "temperatur_pause": 83,
     "temperatur_weiter": 70,
@@ -90,6 +110,8 @@ class Betrieb:
         self.gestoppt = False
         self.termine_geaendert = False
         self.bald = []
+        self.bericht_pfad = None
+        self.archiv_heute = []
 
     # Stand
 
@@ -110,13 +132,34 @@ class Betrieb:
         log(f"  FEHLER ({folge['versuche']}. Versuch): {text}")
         self.speichere()
 
-    def offen(self, stufe):
-        """Folgen auf einer Stufe, die nicht liegen geblieben sind; neue zuerst, dann nach Datum."""
+    def offen(self, stufe, archiv=False):
+        """Folgen auf einer Stufe, die nicht liegen geblieben sind.
+
+        Ohne archiv: Folgen des Tagesbetriebs, neue zuerst, dann nach Datum.
+        Mit archiv: Folgen der Aufarbeitung in der Reihenfolge von archiv_reihe.
+        """
         folgen = [f for f in self.stand.values()
-                  if f["stufe"] in stufe.split() and f.get("versuche", 0) < self.einst["fehlversuche"]]
+                  if f["stufe"] in stufe.split() and f.get("versuche", 0) < self.einst["fehlversuche"]
+                  and bool(f.get("archiv")) == archiv]
+        if archiv:
+            return self.archiv_reihe(folgen)
         folgen.sort(key=lambda f: f["datum"], reverse=True)
         folgen.sort(key=lambda f: not f.get("neu"))
         return folgen
+
+    def archiv_reihe(self, folgen):
+        """Begrenzter Rückstand zuerst (neueste zuerst), danach Quellen mit „alles“ reihum."""
+        gruppen = {}
+        for f in folgen:
+            gruppen.setdefault(f["quelle"], []).append(f)
+        begrenzt, alles = [], []
+        for kennung, liste in gruppen.items():
+            quelle = self.quelle(kennung)
+            liste.sort(key=lambda f: f["datum"], reverse=quelle.get("rueckstand_reihenfolge") != "alt_zuerst")
+            (alles if str(quelle.get("rueckstand")) == "alles" else begrenzt).append(liste)
+        erst = sorted((f for liste in begrenzt for f in liste), key=lambda f: f["datum"], reverse=True)
+        dann = [f for runde in zip_longest(*alles) for f in runde if f]
+        return erst + dann
 
     def pfade(self, folge):
         audio = self.daten / "audio" / folge["quelle"] / folge["datei"]
@@ -274,6 +317,7 @@ class Betrieb:
                 continue
             ausschluss = [w.lower() for w in quelle.get("ohne_titel_mit", [])]
             folgen = [f for f in folgen if not any(w in f["titel"].lower() for w in ausschluss)]
+            folgen.sort(key=lambda f: f["datum"], reverse=True)
             bekannt = [f for f in self.stand.values() if f["quelle"] == quelle["kennung"]]
             bekannte_dateien = {f["datei"] for f in bekannt}
             if bekannt:
@@ -281,8 +325,8 @@ class Betrieb:
                 kandidaten = [f for f in folgen if f["datum"] >= neueste and dateiname(f) not in bekannte_dateien]
                 anzahl = int(quelle.get("hoechstens_pro_lauf") or len(kandidaten))
             else:
-                anzahl = 1 + int(quelle.get("rueckstand", self.einst["rueckstand"]))
-                kandidaten = folgen if quelle.get("vorauswahl") else folgen[:anzahl]
+                anzahl = 1
+                kandidaten = folgen[:1]
             abgelehnt = []
             if quelle.get("vorauswahl") and kandidaten:
                 schwelle = int(quelle.get("vorauswahl_ab", 3))
@@ -311,7 +355,7 @@ class Betrieb:
                 eintrag = {
                     "quelle": quelle["kennung"], "titel": folge["titel"], "datum": folge["datum"],
                     "datei": datei, "neu": ist_neu, "gefunden": datetime.now().isoformat(timespec="seconds"),
-                    "stufe": "gefunden", "versuche": 0, "fehler": "",
+                    "stufe": "gefunden", "versuche": 0, "fehler": "", "seite": folge.get("seite", ""),
                 }
                 self.stand[schluessel] = eintrag
                 self.vorhandenes_uebernehmen(eintrag, folge, quelle)
@@ -319,6 +363,91 @@ class Betrieb:
                 self.heute["gefunden"] += 1
             self.speichere()
             log(f"  {quelle['name']}: {neu} neu eingetragen")
+            try:
+                self.archiv_finden(quelle, folgen)
+            except (SystemExit, Exception) as fehler:  # noqa: BLE001
+                self.fehler.append(f"Aufarbeitung {quelle['kennung']}: {fehler}")
+                log(f"  FEHLER bei der Aufarbeitung von {quelle['kennung']}: {fehler}")
+
+    def archiv_bereich(self, quelle):
+        """("alles", None), ("folgen", n) oder ("wochen", n) nach config.toml."""
+        wert = quelle.get("rueckstand")
+        if str(wert).strip().lower() == "alles":
+            return "alles", None
+        if wert is not None:
+            return "folgen", int(wert)
+        return "wochen", int(quelle.get("rueckstand_wochen", self.einst["rueckstand_wochen"]))
+
+    def bekannte_seiten(self, kennung):
+        """Folgenseiten bekannter Folgen einer Quelle, auch aus älteren Einträgen ohne „seite“."""
+        seiten = set()
+        for f in self.stand.values():
+            if f["quelle"] != kennung:
+                continue
+            seite = f.get("seite")
+            if not seite:
+                meta = self.pfade(f)["meta"]
+                if meta.exists():
+                    seite = json.loads(meta.read_text(encoding="utf-8")).get("seite", "")
+            if seite:
+                seiten.add(seite)
+        return seiten
+
+    def archiv_finden(self, quelle, folgen):
+        """Trägt ältere Folgen im Rückstand der Quelle zur Aufarbeitung ein."""
+        art, wert = self.archiv_bereich(quelle)
+        if art != "alles" and wert <= 0:
+            return
+        grenze = (date.today() - timedelta(weeks=wert)).isoformat() if art == "wochen" else ""
+        rss_reicht = (art == "folgen" and wert < 14) or (art == "wochen" and folgen and folgen[-1]["datum"] < grenze)
+        if quelle.get("typ") == "youtube" and not rss_reicht:
+            hoechstens = None if art == "alles" else (wert + 1 if art == "folgen" else 60)
+            cache = self.daten / "archiv" / f"{quelle['kennung']}.json"
+            folgen = lies_youtube_alle(quelle, cache, hoechstens)
+            ausschluss = [w.lower() for w in quelle.get("ohne_titel_mit", [])]
+            folgen = [f for f in folgen if not any(w in f["titel"].lower() for w in ausschluss)]
+            folgen.sort(key=lambda f: f["datum"], reverse=True)
+        if art == "folgen":
+            bereich = folgen[:wert + 1]
+        elif art == "wochen":
+            bereich = [f for f in folgen if f["datum"] >= grenze]
+        else:
+            bereich = folgen
+        seiten = self.bekannte_seiten(quelle["kennung"])
+        kandidaten = []
+        for folge in bereich:
+            schluessel = f"{quelle['kennung']}/{Path(dateiname(folge)).stem}"
+            if schluessel in self.stand or (folge.get("seite") and folge["seite"] in seiten):
+                continue
+            kandidaten.append(folge)
+        if not kandidaten:
+            return
+        abgelehnt = []
+        if quelle.get("vorauswahl") and art != "alles":
+            schwelle = int(quelle.get("vorauswahl_ab", 3))
+            bewertet = self.vorauswahl(quelle, kandidaten)
+            abgelehnt = [(f, r) for f, r in bewertet if r < schwelle]
+            kandidaten = [f for f, r in bewertet if r >= schwelle]
+        jetzt = datetime.now().isoformat(timespec="seconds")
+        for folge, relevanz in abgelehnt:
+            datei = dateiname(folge)
+            self.stand[f"{quelle['kennung']}/{Path(datei).stem}"] = {
+                "quelle": quelle["kennung"], "titel": folge["titel"], "datum": folge["datum"], "datei": datei,
+                "neu": False, "archiv": True, "gefunden": jetzt, "stufe": "uebersprungen",
+                "grund": f"Vorauswahl: Relevanz {relevanz}", "versuche": 0, "fehler": "", "seite": folge.get("seite", ""),
+            }
+        for folge in kandidaten:
+            datei = dateiname(folge)
+            eintrag = {
+                "quelle": quelle["kennung"], "titel": folge["titel"], "datum": folge["datum"], "datei": datei,
+                "neu": False, "archiv": True, "gefunden": jetzt, "stufe": "gefunden",
+                "versuche": 0, "fehler": "", "seite": folge.get("seite", ""),
+            }
+            self.stand[f"{quelle['kennung']}/{Path(datei).stem}"] = eintrag
+            self.vorhandenes_uebernehmen(eintrag, folge, quelle)
+        self.speichere()
+        log(f"  {quelle['name']}: {len(kandidaten)} zur Aufarbeitung eingetragen"
+            + (f", {len(abgelehnt)} durch die Vorauswahl übersprungen" if abgelehnt else ""))
 
     def vorauswahl(self, quelle, kandidaten):
         """Bewertet die Titel neuer Folgen gegen das Interessenprofil. Gibt [(folge, relevanz), ...] zurück."""
@@ -370,14 +499,18 @@ class Betrieb:
         if eintrag["stufe"] != "gefunden":
             log(f"  schon vorhanden bis Stufe {eintrag['stufe']}: {eintrag['titel']}")
 
-    def laden_und_transkribieren(self):
-        warteschlange = self.offen("gefunden geladen")
+    def frist_um(self, bis):
+        return bis is not None and datetime.now() >= bis
+
+    def laden_und_transkribieren(self, warteschlange=None, bis=None):
+        if warteschlange is None:
+            warteschlange = self.offen("gefunden geladen")
         if not warteschlange:
             return
         log(f"Laden und transkribieren: {len(warteschlange)} Folgen")
         self.modell_entladen()
         for folge in warteschlange:
-            if self.stopp():
+            if self.stopp() or self.frist_um(bis):
                 return
             p = self.pfade(folge)
             log(f"{folge['titel']}")
@@ -397,7 +530,7 @@ class Betrieb:
                 except Exception as fehler:  # noqa: BLE001
                     self.scheitert(folge, f"Laden: {fehler}")
                     continue
-            if self.stopp():
+            if self.stopp() or self.frist_um(bis):
                 return
             self.abkuehlen()
             log("  transkribieren")
@@ -414,14 +547,15 @@ class Betrieb:
             p["audio"].unlink(missing_ok=True)
             self.setze(folge, "transkribiert")
 
-    def auswerten(self):
-        warteschlange = self.offen("transkribiert")
+    def auswerten(self, warteschlange=None, bis=None):
+        if warteschlange is None:
+            warteschlange = self.offen("transkribiert")
         if not warteschlange or self.stopp():
             return
         log(f"Auswerten: {len(warteschlange)} Folgen")
         self.modell_pruefen()
         for folge in warteschlange:
-            if self.stopp():
+            if self.stopp() or self.frist_um(bis):
                 return
             p = self.pfade(folge)
             if p["notiz"].exists() and not folge.get("neu_auswerten"):
@@ -517,15 +651,19 @@ class Betrieb:
                 self.neue_notizen.append((self.quellenname(folge["quelle"]), folge["titel"]))
         self.notizen_committen(warteschlange)
 
-    def notizen_committen(self, folgen):
+    def notizen_committen(self, folgen, aufarbeitung=False):
         dateien = [str(Path(f["notiz"]).relative_to(self.notizen.parent.parent)) for f in folgen if f["stufe"] == "veroeffentlicht"]
         anzahl = len(dateien)
-        if self.termine_geaendert:
+        mit_terminen = self.termine_geaendert and not aufarbeitung
+        if mit_terminen:
             dateien += ["inhalt/termine/index.md", "inhalt/termine/termine.ics"]
         if not dateien:
             return
         repo = self.notizen.parent.parent
-        nachricht = f"Tagesbetrieb {datetime.now():%d.%m.%Y}: {anzahl} Notizen" + (", Termine" if self.termine_geaendert else "")
+        if aufarbeitung:
+            nachricht = f"Aufarbeitung {datetime.now():%d.%m.%Y}: {anzahl} Notizen"
+        else:
+            nachricht = f"Tagesbetrieb {datetime.now():%d.%m.%Y}: {anzahl} Notizen" + (", Termine" if mit_terminen else "")
         try:
             subprocess.run(["git", "-C", str(repo), "add", "--", *dateien], check=True, capture_output=True)
             subprocess.run(["git", "-C", str(repo), "commit", "-m", nachricht, "--", *dateien],
@@ -534,11 +672,71 @@ class Betrieb:
         except subprocess.CalledProcessError as fehler:
             log(f"  Commit der Notizen fehlgeschlagen: {fehler.stderr.decode(errors='replace').strip()}")
 
+    # Aufarbeitung
+
+    def archiv(self, bis):
+        """Arbeitet ältere Folgen in Blöcken auf, bis die Frist erreicht ist oder nichts mehr offen ist."""
+        if self.frist_um(bis):
+            log(f"Aufarbeitung: Frist {bis:%H:%M} schon erreicht")
+            return
+        log(f"Aufarbeitung bis {bis:%H:%M}")
+        while not self.stopp() and not self.frist_um(bis):
+            block = self.offen("gefunden geladen transkribiert ausgewertet", archiv=True)[:self.einst["archiv_block"]]
+            if not block:
+                log("Aufarbeitung: nichts mehr offen")
+                break
+            vorher = [(f["stufe"], f.get("versuche", 0)) for f in block]
+            self.laden_und_transkribieren([f for f in block if f["stufe"] in ("gefunden", "geladen")], bis)
+            if self.stopp() or self.frist_um(bis):
+                break
+            self.auswerten([f for f in block if f["stufe"] == "transkribiert"], bis)
+            self.archiv_veroeffentlichen([f for f in block if f["stufe"] == "ausgewertet"])
+            if [(f["stufe"], f.get("versuche", 0)) for f in block] == vorher:
+                log("Aufarbeitung: kein Fortschritt in diesem Block, Ende für heute")
+                break
+        self.archiv_nachtrag(bis)
+
+    def archiv_veroeffentlichen(self, folgen):
+        """Seite bauen und hochladen, ohne Threads. Die Notizen tragen ihr echtes Datum."""
+        if not folgen or self.stopp():
+            return
+        log(f"Aufarbeitung veröffentlichen: {len(folgen)} Notizen")
+        if self.fuehre_aus([sys.executable, "bauen.py", "--hochladen"], ueberwachen=False) != 0:
+            for folge in folgen:
+                self.scheitert(folge, "Bauen oder Hochladen fehlgeschlagen")
+            return
+        for folge in folgen:
+            self.setze(folge, "veroeffentlicht")
+            self.archiv_heute.append((self.quellenname(folge["quelle"]), folge["titel"], folge["datum"]))
+        self.notizen_committen(folgen, aufarbeitung=True)
+
+    def archiv_stand(self):
+        """(erledigt, offen) über alle Folgen der Aufarbeitung."""
+        archiv = [f for f in self.stand.values() if f.get("archiv") and f["stufe"] != "uebersprungen"]
+        offen = sum(1 for f in archiv if f["stufe"] in STUFEN[:4] and f.get("versuche", 0) < self.einst["fehlversuche"])
+        erledigt = sum(1 for f in archiv if f["stufe"] in ("veroeffentlicht", "ohne_funde"))
+        return erledigt, offen
+
+    def archiv_nachtrag(self, bis):
+        """Hängt das Ergebnis der Aufarbeitung an den Tagesbericht an."""
+        erledigt, offen = self.archiv_stand()
+        zeilen = ["", f"## Aufarbeitung bis {datetime.now():%H:%M} (Frist {bis:%H:%M})", "",
+                  f"- heute veröffentlicht: {len(self.archiv_heute)}",
+                  f"- insgesamt erledigt: {erledigt}, offen: {offen}"]
+        if self.archiv_heute:
+            zeilen.append("")
+            zeilen += [f"- {q}: {t} ({d})" for q, t, d in self.archiv_heute]
+        text = "\n".join(zeilen) + "\n"
+        if self.bericht_pfad:
+            with open(self.bericht_pfad, "a", encoding="utf-8") as datei:
+                datei.write(text)
+        print(text, flush=True)
+
     # Bericht
 
     def bericht(self):
         ende = datetime.now()
-        stufen = Counter(f["stufe"] for f in self.stand.values())
+        stufen = Counter(f["stufe"] for f in self.stand.values() if not f.get("archiv"))
         liegen = [f for f in self.stand.values() if f.get("versuche", 0) >= self.einst["fehlversuche"]]
         offen = sum(stufen[s] for s in ("gefunden", "geladen", "transkribiert", "ausgewertet"))
         pausen_min = sum(p["sekunden"] for p in self.pausen) / 60
@@ -556,6 +754,9 @@ class Betrieb:
         ]
         if self.gpu_anteil is not None:
             zeilen.append(f"- Modell auf den Grafikkarten: {self.gpu_anteil} %")
+        erledigt, offen_archiv = self.archiv_stand()
+        if erledigt or offen_archiv:
+            zeilen.append(f"- Aufarbeitung: {erledigt} erledigt, {offen_archiv} offen")
         if self.bald:
             zeilen += ["", "## Termine in den nächsten 48 Stunden", ""]
             zeilen += [f"- {t['zeit']} {t['titel']} ({t['quelle']})" for t in self.bald]
@@ -574,6 +775,7 @@ class Betrieb:
         ordner.mkdir(parents=True, exist_ok=True)
         pfad = ordner / f"{self.beginn:%Y-%m-%d_%H%M%S}.md"
         pfad.write_text(text, encoding="utf-8")
+        self.bericht_pfad = pfad
         log(f"Tagesbericht: {pfad}")
         print(text, flush=True)
         if self.einst["bericht_als_direktnachricht"]:
@@ -591,6 +793,9 @@ class Betrieb:
         ]
         if self.pausen:
             teile.append(f"Temperaturpausen: {len(self.pausen)}, {pausen_min:.0f} Minuten")
+        erledigt, offen_archiv = self.archiv_stand()
+        if erledigt or offen_archiv:
+            teile.append(f"Aufarbeitung: {erledigt} erledigt, {offen_archiv} offen")
         if self.gpu_anteil is not None and self.gpu_anteil < 100:
             teile.append(f"Modell nur zu {self.gpu_anteil} % auf den Grafikkarten")
         try:
@@ -638,14 +843,19 @@ def zeige_stand(betrieb):
     for f in folgen:
         liegt = " LIEGT" if f.get("versuche", 0) >= betrieb.einst["fehlversuche"] else ""
         fehler = f"  ({f['fehler']})" if f.get("fehler") else ""
-        print(f"{f['datum']}  {f['stufe']:<15} {f['quelle']:<20} {f['titel'][:60]}{liegt}{fehler}")
+        art = "A" if f.get("archiv") else " "
+        print(f"{f['datum']} {art} {f['stufe']:<15} {f['quelle']:<20} {f['titel'][:60]}{liegt}{fehler}")
     print(f"\n{len(folgen)} Folgen: " + ", ".join(f"{n} {s}" for s, n in Counter(f["stufe"] for f in folgen).items()))
+    erledigt, offen = betrieb.archiv_stand()
+    print(f"Aufarbeitung (A): {erledigt} erledigt, {offen} offen")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Tagesbetrieb der Lesesaal-Pipeline")
     parser.add_argument("--danach-aus", action="store_true", help="medienlabor nach dem Lauf herunterfahren")
     parser.add_argument("--stand", action="store_true", help="nur den Stand aller Folgen anzeigen")
+    parser.add_argument("--ohne-archiv", action="store_true", help="heute keine älteren Folgen aufarbeiten")
+    parser.add_argument("--archiv-bis", metavar="HH:MM", help="Aufarbeitung heute nur bis zu dieser Uhrzeit")
     parser.add_argument("--neu-auswerten", metavar="AUSWAHL",
                         help="fertige Folgen noch einmal auswerten: alle, eine Quelle oder ein Teil des Namens")
     args = parser.parse_args()
@@ -664,7 +874,10 @@ def main():
         raise SystemExit("Der Tagesbetrieb läuft schon.") from None
 
     betrieb.stoppdatei.unlink(missing_ok=True)
+    stunde, _, minute = (args.archiv_bis or str(betrieb.einst["archiv_bis"])).partition(":")
+    bis = datetime.now().replace(hour=int(stunde), minute=int(minute or 0), second=0, microsecond=0)
     print(f"\n===== Tagesbetrieb {betrieb.beginn:%d.%m.%Y %H:%M} =====", flush=True)
+    tagesteil_fertig = False
     try:
         if args.neu_auswerten:
             betrieb.neu_auswerten(args.neu_auswerten)
@@ -674,12 +887,18 @@ def main():
         betrieb.szene()
         betrieb.termine()
         betrieb.veroeffentlichen()
+        tagesteil_fertig = True
     except Exception as fehler:  # noqa: BLE001
         betrieb.fehler.append(f"Programmfehler: {fehler!r}")
         log(f"PROGRAMMFEHLER: {fehler!r}")
         raise
     finally:
         betrieb.bericht()
+        if tagesteil_fertig and not args.ohne_archiv and not betrieb.stopp():
+            try:
+                betrieb.archiv(bis)
+            except Exception as fehler:  # noqa: BLE001
+                log(f"PROGRAMMFEHLER in der Aufarbeitung: {fehler!r}")
         ausschalten = args.danach_aus
         if betrieb.stoppdatei.exists():
             ausschalten = ausschalten or betrieb.stoppdatei.read_text(encoding="utf-8").strip() == "aus"

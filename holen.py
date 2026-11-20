@@ -12,6 +12,9 @@ gerade live oder angekündigt ist (dann später erneut versuchen), ob es ein auf
 Livestream ist (überspringen bei ohne_livestreams = true) und ob es länger ist als
 hoechstdauer_minuten (überspringen).
 
+Für die Aufarbeitung älterer Videos listet lies_youtube_alle den Kanal über yt-dlp, weil der
+RSS-Feed nur die letzten 15 Videos enthält.
+
 Quellen mit typ = "tiktok" und konto listen die neuesten Videos über yt-dlp, weil TikTok keinen
 Feed hat. Geladen wird wie bei YouTube. Bei Videos bleibt die Angabe url
 leer, damit die Notiz keinen Audio-Player bekommt. Die Zeitmarken verlinken dann über
@@ -103,6 +106,61 @@ def lies_youtube(quelle):
             "bytes": 0,
             "url": "",
             "seite": seite,
+            "video": True,
+            "endung": ".m4a",
+        })
+    return folgen
+
+
+def lies_youtube_alle(quelle, cache_pfad, hoechstens=None):
+    """Listet die Videos eines Kanals über yt-dlp, auch ältere als die 15 des RSS-Feeds.
+
+    Das genaue Datum kennt die flache Liste nicht. Es wird je Video einmal abgefragt und in
+    cache_pfad gespeichert, damit spätere Läufe nur noch neue Videos nachschlagen.
+    """
+    adresse = f"https://www.youtube.com/channel/{quelle['kanal_id']}/videos"
+    befehl = ["yt-dlp", "--quiet", "--no-warnings", "--flat-playlist",
+              "--print", "%(id)s\t%(duration)s\t%(title)s", adresse]
+    if hoechstens:
+        befehl[4:4] = ["--playlist-items", f"1:{hoechstens}"]
+    ergebnis = subprocess.run(befehl, capture_output=True, text=True, timeout=600)
+    liste = []
+    for zeile in ergebnis.stdout.splitlines():
+        teile = zeile.split("\t", 2)
+        if len(teile) == 3 and teile[0]:
+            liste.append(teile)
+    if not liste:
+        fehler = (ergebnis.stderr or "keine Videos gefunden").strip()[-300:]
+        raise SystemExit(f"YouTube-Liste {quelle['kennung']}: {fehler}")
+
+    cache = json.loads(cache_pfad.read_text(encoding="utf-8")) if cache_pfad.exists() else {}
+    fehlen = [i for i, _, _ in liste if i not in cache]
+    for start in range(0, len(fehlen), 40):
+        stapel = fehlen[start:start + 40]
+        antwort = subprocess.run(
+            ["yt-dlp", "--quiet", "--no-warnings", "--ignore-errors", "--skip-download",
+             "--print", "%(id)s\t%(upload_date)s",
+             *[f"https://www.youtube.com/watch?v={i}" for i in stapel]],
+            capture_output=True, text=True, timeout=1800,
+        )
+        for zeile in antwort.stdout.splitlines():
+            vid, _, tag = zeile.partition("\t")
+            if len(tag) == 8 and tag.isdigit():
+                cache[vid] = f"{tag[:4]}-{tag[4:6]}-{tag[6:]}"
+        cache_pfad.parent.mkdir(parents=True, exist_ok=True)
+        cache_pfad.write_text(json.dumps(cache, indent=1), encoding="utf-8")
+
+    folgen = []
+    for vid, dauer, titel in liste:
+        if vid not in cache:
+            continue
+        folgen.append({
+            "titel": titel or "ohne Titel",
+            "datum": cache[vid],
+            "dauer": dauer if dauer not in ("NA", "None") else "",
+            "bytes": 0,
+            "url": "",
+            "seite": f"https://www.youtube.com/watch?v={vid}",
             "video": True,
             "endung": ".m4a",
         })
