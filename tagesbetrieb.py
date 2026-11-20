@@ -16,8 +16,10 @@ Gedacht für den Start per Alias im Hintergrund (lesesaal). Ablauf:
   2. Laden und transkribieren, neue Folgen zuerst. Die Audiodatei wird danach gelöscht.
   3. Auswerten, erst wenn alles transkribiert ist. Whisper und qwen3:32b passen nicht
      gleichzeitig in den Grafikspeicher.
-  4. Seite bauen, hochladen, je neue Notiz einen Thread posten, Notizen committen.
-  5. Tagesbericht als Datei und als Direktnachricht.
+  4. Szene: Ist [szene] aktiv, liest szene.py die Fediverse-Konten aus NOTIZEN/szene.txt und
+     schreibt eine Tagesnotiz, die mit veröffentlicht wird.
+  5. Seite bauen, hochladen, je neue Notiz einen Thread posten, Notizen committen.
+  6. Tagesbericht als Datei und als Direktnachricht.
 
 Stufen je Folge: gefunden, geladen, transkribiert, ausgewertet, veroeffentlicht, ohne_funde.
 Der Stand liegt in DATEN/stand.json. Ein neuer Lauf macht dort weiter, wo der letzte aufhörte.
@@ -125,6 +127,8 @@ class Betrieb:
         return next((q for q in self.konf["quelle"] if q["kennung"] == kennung), {})
 
     def quellenname(self, kennung):
+        if kennung == "szene":
+            return self.konf.get("szene", {}).get("name", "Fediverse-Szene")
         return next((q["name"] for q in self.konf["quelle"] if q["kennung"] == kennung), kennung)
 
     def nach_quelle(self):
@@ -434,6 +438,32 @@ class Betrieb:
             else:
                 self.setze(folge, "ohne_funde", neu_auswerten=False)
 
+    def szene(self):
+        """Fediverse-Konten der Szene auswerten; eine neue Tagesnotiz kommt als „ausgewertet“ in den Stand."""
+        if not self.konf.get("szene", {}).get("aktiv") or self.stopp():
+            return
+        if not (self.notizen.parent.parent / "szene.txt").exists():
+            log("Szene: keine szene.txt im Notizen-Repository")
+            return
+        log("Szene-Konten")
+        ergebnis = subprocess.run([sys.executable, "szene.py"], cwd=PROJEKT, capture_output=True, text=True,
+                                  env=dict(os.environ, PYTHONUNBUFFERED="1"))
+        print(ergebnis.stdout, end="", flush=True)
+        if ergebnis.returncode != 0:
+            self.fehler.append(f"Szene: Exit-Code {ergebnis.returncode}")
+            log(f"  FEHLER: {ergebnis.stderr.strip()[-300:]}")
+            return
+        letzte = ergebnis.stdout.strip().splitlines()[-1] if ergebnis.stdout.strip() else ""
+        notiz = Path(letzte)
+        if not letzte.endswith(".md") or not notiz.exists():
+            return
+        self.stand[f"szene/{notiz.stem}"] = {
+            "quelle": "szene", "titel": f"Szene am {datetime.now():%d.%m.%Y}", "datum": f"{datetime.now():%Y-%m-%d}",
+            "datei": f"{notiz.stem}.txt", "neu": True, "gefunden": datetime.now().isoformat(timespec="seconds"),
+            "stufe": "gefunden", "versuche": 0, "fehler": "",
+        }
+        self.setze(self.stand[f"szene/{notiz.stem}"], "ausgewertet", notiz=str(notiz))
+
     def veroeffentlichen(self):
         warteschlange = self.offen("ausgewertet")
         if not warteschlange:
@@ -599,6 +629,7 @@ def main():
         betrieb.finden()
         betrieb.laden_und_transkribieren()
         betrieb.auswerten()
+        betrieb.szene()
         betrieb.veroeffentlichen()
     except Exception as fehler:  # noqa: BLE001
         betrieb.fehler.append(f"Programmfehler: {fehler!r}")

@@ -201,3 +201,7 @@ hoechstens_pro_lauf = 3
 vorauswahl = true
 vorauswahl_ab = 4
 ohne_titel_mit = ["#ad"]
+
+[szene]
+aktiv = true
+name = "Fediverse-Szene"
