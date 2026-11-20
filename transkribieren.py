@@ -81,7 +81,7 @@ def main():
         raise SystemExit(f"Datei nicht gefunden: {audio_pfad}")
     kennung = audio_pfad.parent.name
     quelle = next((q for q in konfiguration["quelle"] if q["kennung"] == kennung), {})
-    sprache = args.sprache or quelle.get("sprache")
+    sprache = args.sprache or quelle.get("sprache") or None
 
     ziel = Path(konfiguration["pfade"]["daten"]) / "transkripte" / kennung
     ziel_json = ziel / f"{audio_pfad.stem}.json"

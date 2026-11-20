@@ -90,6 +90,26 @@ FORMATE = {
         },
     },
 }
+FORMATE["finanzen"] = {
+    "name": "Finanznotiz",
+    "profil": ["Finanzen"],
+    "listen": {
+        "thesen": {
+            "arten": ["These", "Begriff"],
+            "was": "Kernaussagen, Thesen und Fachbegriffe zu Märkten, Geld, Unternehmen, Wirtschaft und "
+                   "Steuern, die erklärt oder vertreten werden, mit dem historischen Zusammenhang, wenn er genannt wird",
+            "pro_abschnitt": 4,
+            "hoechstens": 8,
+        },
+        "hinweise": {
+            "arten": ["Unternehmen", "Institution", "Organisation", "Ereignis", "Projekt", "Literatur"],
+            "was": "Unternehmen, Institutionen wie Zentralbanken oder Behörden, Organisationen, benannte Ereignisse, "
+                   "Projekte und Literatur, die genannt werden",
+            "pro_abschnitt": 4,
+            "hoechstens": 8,
+        },
+    },
+}
 OHNE_NAMEN = {"These", "Begriff"}
 REIHENFOLGE = ["Thesen und Begriffe", "Hinweise", "Literatur"]
 
@@ -421,7 +441,7 @@ def schreibe_notiz(pfad, meta, fmt_kennung, funde, hashtags, sprung):
             if meta.get("url"):
                 marke = f"[{marke}]({meta['url']}#t={in_sekunden(marke)})"
             elif sprung and meta.get("seite"):
-                marke = f"[{marke}]({meta['seite']}{sprung.format(zeit=marke)})"
+                marke = f"[{marke}]({meta['seite']}{sprung.format(zeit=marke, sekunden=in_sekunden(marke))})"
             zeilen.append(f"- **{f['titel']}** ({f['art']}, {marke}): {f['beschreibung']}")
     pfad.parent.mkdir(parents=True, exist_ok=True)
     pfad.write_text("\n".join(zeilen) + "\n", encoding="utf-8")

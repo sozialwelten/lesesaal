@@ -44,7 +44,7 @@ from pathlib import Path
 import requests
 
 from bauen import PROJEKT, lies_env
-from holen import dateiname, lade, lies_feed, schreibe_meta
+from holen import NochNichtFertig, Uebersprungen, dateiname, lade, lies_feed, schreibe_meta
 
 ABGEBROCHEN = 3
 STUFEN = ["gefunden", "geladen", "transkribiert", "ausgewertet", "veroeffentlicht"]
@@ -115,6 +115,9 @@ class Betrieb:
             "transkript": self.daten / "transkripte" / folge["quelle"] / f"{stem}.json",
             "notiz": self.notizen / f"{stem}.md",
         }
+
+    def quelle(self, kennung):
+        return next((q for q in self.konf["quelle"] if q["kennung"] == kennung), {})
 
     def quellenname(self, kennung):
         return next((q["name"] for q in self.konf["quelle"] if q["kennung"] == kennung), kennung)
@@ -232,7 +235,7 @@ class Betrieb:
     def finden(self):
         log("Feeds abfragen")
         for quelle in self.konf["quelle"]:
-            if quelle.get("typ", "podcast") != "podcast" or quelle.get("aktiv", True) is False:
+            if quelle.get("typ", "podcast") not in ("podcast", "youtube") or quelle.get("aktiv", True) is False:
                 continue
             try:
                 folgen = lies_feed(quelle)
@@ -241,12 +244,33 @@ class Betrieb:
                 log(f"  FEHLER bei {quelle['kennung']}: {fehler}")
                 continue
             bekannt = [f for f in self.stand.values() if f["quelle"] == quelle["kennung"]]
+            bekannte_dateien = {f["datei"] for f in bekannt}
             if bekannt:
                 neueste = max(f["datum"] for f in bekannt)
-                auswahl = [(f, True) for f in folgen if f["datum"] >= neueste]
+                kandidaten = [f for f in folgen if f["datum"] >= neueste and dateiname(f) not in bekannte_dateien]
+                anzahl = int(quelle.get("hoechstens_pro_lauf") or len(kandidaten))
             else:
                 anzahl = 1 + int(quelle.get("rueckstand", self.einst["rueckstand"]))
-                auswahl = [(f, i == 0) for i, f in enumerate(folgen[:anzahl])]
+                kandidaten = folgen if quelle.get("vorauswahl") else folgen[:anzahl]
+            abgelehnt = []
+            if quelle.get("vorauswahl") and kandidaten:
+                schwelle = int(quelle.get("vorauswahl_ab", 3))
+                bewertet = sorted(self.vorauswahl(quelle, kandidaten), key=lambda e: -e[1])
+                behalten = [f for f, r in bewertet if r >= schwelle][:anzahl]
+                abgelehnt = [(f, r) for f, r in bewertet if f not in behalten]
+            else:
+                behalten = kandidaten[:anzahl]
+            auswahl = [(f, bool(bekannt) or nr == 0) for nr, f in enumerate(behalten)]
+            for folge, relevanz in abgelehnt:
+                datei = dateiname(folge)
+                schluessel = f"{quelle['kennung']}/{Path(datei).stem}"
+                if schluessel not in self.stand:
+                    self.stand[schluessel] = {
+                        "quelle": quelle["kennung"], "titel": folge["titel"], "datum": folge["datum"],
+                        "datei": datei, "neu": False, "gefunden": datetime.now().isoformat(timespec="seconds"),
+                        "stufe": "uebersprungen", "grund": f"Vorauswahl: Relevanz {relevanz}", "versuche": 0, "fehler": "",
+                    }
+                    self.heute["uebersprungen"] += 1
             neu = 0
             for folge, ist_neu in auswahl:
                 datei = dateiname(folge)
@@ -264,6 +288,39 @@ class Betrieb:
                 self.heute["gefunden"] += 1
             self.speichere()
             log(f"  {quelle['name']}: {neu} neu eingetragen")
+
+    def vorauswahl(self, quelle, kandidaten):
+        """Bewertet die Titel neuer Folgen gegen das Interessenprofil. Gibt [(folge, relevanz), ...] zurück."""
+        from auswerten import FORMATE, frage_modell, profil_auszug, waehle_format
+
+        fmt = FORMATE[waehle_format(quelle, "")]
+        profil = profil_auszug((self.notizen.parent.parent / "interessenprofil.md").read_text(encoding="utf-8"),
+                               fmt["profil"])
+        liste = "\n".join(f"{nr}. {f['titel']}" for nr, f in enumerate(kandidaten, 1))
+        inhalt = (
+            f"Titel neuer Folgen von {quelle['name']}:\n\n{liste}\n\n---\n\nInteressenprofil:\n\n{profil}\n\n---\n\n"
+            "Aufgabe: Bewerte für jeden Titel, wie gut die Folge vermutlich zum Interessenprofil passt, "
+            "von 1 (gar nicht) bis 5 (sehr gut). Gib für jede Nummer genau eine Bewertung zurück."
+        )
+        schema = {
+            "type": "object",
+            "properties": {"bewertungen": {"type": "array", "items": {
+                "type": "object",
+                "properties": {"nr": {"type": "integer"}, "relevanz": {"type": "integer", "minimum": 1, "maximum": 5}},
+                "required": ["nr", "relevanz"],
+            }}},
+            "required": ["bewertungen"],
+        }
+        try:
+            roh, _ = frage_modell(self.konf, inhalt, schema)
+            werte = {b["nr"]: b["relevanz"] for b in json.loads(roh).get("bewertungen", [])}
+        except (requests.RequestException, ValueError, KeyError, TypeError) as fehler:
+            log(f"  Vorauswahl nicht möglich ({fehler}), nehme die neuesten")
+            return [(f, 3) for f in kandidaten]
+        ergebnis = [(f, int(werte.get(nr, 0))) for nr, f in enumerate(kandidaten, 1)]
+        for f, r in ergebnis:
+            log(f"    Vorauswahl {r}: {f['titel'][:70]}")
+        return ergebnis
 
     def vorhandenes_uebernehmen(self, eintrag, folge, quelle):
         """Was es schon gibt, wird nicht noch einmal gemacht: Transkript, Notiz, Thread."""
@@ -297,8 +354,15 @@ class Betrieb:
                 meta = json.loads(p["meta"].read_text(encoding="utf-8"))
                 try:
                     log("  laden")
-                    lade(meta, p["audio"])
+                    lade(meta, p["audio"], self.quelle(folge["quelle"]))
                     self.setze(folge, "geladen")
+                except NochNichtFertig as grund:
+                    log(f"  noch nicht verfügbar ({grund}), beim nächsten Lauf wieder")
+                    continue
+                except Uebersprungen as grund:
+                    log(f"  übersprungen: {grund}")
+                    self.setze(folge, "uebersprungen", grund=str(grund))
+                    continue
                 except Exception as fehler:  # noqa: BLE001
                     self.scheitert(folge, f"Laden: {fehler}")
                     continue
@@ -396,7 +460,7 @@ class Betrieb:
             f"- Neu gefunden: {self.heute['gefunden']}",
             f"- Heute erledigt: {self.heute['geladen']} geladen, {self.heute['transkribiert']} transkribiert, "
             f"{self.heute['ausgewertet']} ausgewertet, {self.heute['ohne_funde']} ohne Funde, "
-            f"{self.heute['veroeffentlicht']} veröffentlicht",
+            f"{self.heute['veroeffentlicht']} veröffentlicht, {self.heute['uebersprungen']} übersprungen",
             f"- Offen: {offen} ({', '.join(f'{stufen[s]} {s}' for s in STUFEN[:4] if stufen[s]) or 'nichts'})",
             f"- Temperaturpausen: {len(self.pausen)}, zusammen {pausen_min:.0f} Minuten"
             + (f", höchstens {max(p['grad'] for p in self.pausen)} °C" if self.pausen else ""),

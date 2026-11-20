@@ -21,3 +21,4 @@ disableKinds = ["sitemap"]
 [params.formate]
   tech = "Tech-Radar"
   gespraech = "Gesprächsnotiz"
+  finanzen = "Finanznotiz"

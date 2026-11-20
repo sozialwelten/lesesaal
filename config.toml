@@ -78,3 +78,80 @@ feed = "https://damals-tm-podcast.de/?feed=damalstm-mp3"
 sprache = "de"
 zweck = "tech"
 rueckstand = 1
+
+[[quelle]]
+kennung = "simon-weber"
+name = "Simon, Weber and Friends"
+typ = "youtube"
+kanal_id = "UC05N5n1qH1tQ9m1L5yaNHHw"
+sprache = "de"
+zweck = "theorie"
+format = "gespraech"
+sprunglink = "&t={sekunden}s"
+rueckstand = 1
+
+[[quelle]]
+kennung = "mike-levin"
+name = "Mike Levin"
+typ = "youtube"
+kanal_id = "UCd26IHBHcbtxD7pUdnIgiCw"
+sprache = "en"
+zweck = "tech"
+sprunglink = "&t={sekunden}s"
+rueckstand = 1
+hoechstens_pro_lauf = 1
+vorauswahl = true
+
+[[quelle]]
+kennung = "patrick-boyle"
+name = "Patrick Boyle"
+typ = "youtube"
+kanal_id = "UCASM0cgfkJxQ1ICmRilfHLw"
+sprache = "en"
+zweck = "finanzen"
+format = "finanzen"
+sprunglink = "&t={sekunden}s"
+rueckstand = 1
+
+[[quelle]]
+kennung = "economics-explained"
+name = "Economics Explained"
+typ = "youtube"
+kanal_id = "UCZ4AMrDcNrfy3X6nsU8-rPg"
+sprache = "en"
+zweck = "finanzen"
+format = "finanzen"
+sprunglink = "&t={sekunden}s"
+rueckstand = 1
+
+[[quelle]]
+kennung = "shin-financials"
+name = "Shin Financials"
+typ = "youtube"
+kanal_id = "UCJBebcYWhO9WTCwx2-FHT2w"
+sprache = "en"
+zweck = "finanzen"
+format = "finanzen"
+sprunglink = "&t={sekunden}s"
+rueckstand = 1
+
+[[quelle]]
+kennung = "wissen-hat-keinen-eigentuemer"
+name = "Wissen hat keinen Eigentümer"
+typ = "youtube"
+kanal_id = "UCbYoxrOzFUiH8NVPonfSniQ"
+zweck = "finanzen"
+format = "finanzen"
+sprunglink = "&t={sekunden}s"
+rueckstand = 1
+
+[[quelle]]
+kennung = "varoufakis"
+name = "Yanis Varoufakis"
+typ = "youtube"
+kanal_id = "UCPgJddP_Y3BHo_8bG0G1TCA"
+sprache = "en"
+zweck = "finanzen"
+format = "finanzen"
+sprunglink = "&t={sekunden}s"
+rueckstand = 1
