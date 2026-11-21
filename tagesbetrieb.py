@@ -7,6 +7,9 @@ Aufruf:
   .venv/bin/python tagesbetrieb.py --ohne-archiv  ohne Aufarbeitung älterer Folgen
   .venv/bin/python tagesbetrieb.py --archiv-bis 15:00
                                                 Aufarbeitung heute nur bis zu dieser Uhrzeit
+  .venv/bin/python tagesbetrieb.py --nur-archiv --archiv-bis 11:30
+                                                nur Aufarbeitung, ohne Feeds, Posten und Direktnachricht;
+                                                so ruft der Dirigent sie blockweise auf
   .venv/bin/python tagesbetrieb.py --neu-auswerten alle
                                                 fertige Folgen mit vorhandenem Transkript noch einmal
                                                 auswerten und ihre Notizen überschreiben; statt „alle“
@@ -856,6 +859,8 @@ def main():
     parser.add_argument("--stand", action="store_true", help="nur den Stand aller Folgen anzeigen")
     parser.add_argument("--ohne-archiv", action="store_true", help="heute keine älteren Folgen aufarbeiten")
     parser.add_argument("--archiv-bis", metavar="HH:MM", help="Aufarbeitung heute nur bis zu dieser Uhrzeit")
+    parser.add_argument("--nur-archiv", action="store_true",
+                        help="nur ältere Folgen aufarbeiten: keine Feeds, kein Posten, keine Direktnachricht")
     parser.add_argument("--neu-auswerten", metavar="AUSWAHL",
                         help="fertige Folgen noch einmal auswerten: alle, eine Quelle oder ein Teil des Namens")
     args = parser.parse_args()
@@ -876,6 +881,17 @@ def main():
     betrieb.stoppdatei.unlink(missing_ok=True)
     stunde, _, minute = (args.archiv_bis or str(betrieb.einst["archiv_bis"])).partition(":")
     bis = datetime.now().replace(hour=int(stunde), minute=int(minute or 0), second=0, microsecond=0)
+    if args.nur_archiv:
+        print(f"\n===== Aufarbeitung {betrieb.beginn:%d.%m.%Y %H:%M} =====", flush=True)
+        ordner = betrieb.daten / "berichte"
+        ordner.mkdir(parents=True, exist_ok=True)
+        betrieb.bericht_pfad = ordner / f"{betrieb.beginn:%Y-%m-%d_%H%M%S}_aufarbeitung.md"
+        betrieb.bericht_pfad.write_text(f"# Aufarbeitung {betrieb.beginn:%d.%m.%Y %H:%M}\n", encoding="utf-8")
+        try:
+            betrieb.archiv(bis)
+        finally:
+            betrieb.stoppdatei.unlink(missing_ok=True)
+        return
     print(f"\n===== Tagesbetrieb {betrieb.beginn:%d.%m.%Y %H:%M} =====", flush=True)
     tagesteil_fertig = False
     try:
