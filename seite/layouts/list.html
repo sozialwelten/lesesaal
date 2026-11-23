@@ -13,6 +13,7 @@
   {{ $seiten = where site.RegularPages "Section" "notizen" }}
 {{ else }}
   <h1>{{ partial "seitentitel.html" . }}</h1>
+  {{ with .Content }}<div class="einleitung">{{ . }}</div>{{ end }}
 {{ end }}
 <ul class="liste">
 {{ range $seiten.ByDate.Reverse }}

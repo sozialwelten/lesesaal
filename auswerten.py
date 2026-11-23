@@ -11,12 +11,15 @@ Ablauf:
      Transkript. Fehlt sie oder steht kein Wort des Titels in ihrer Nähe, fällt der Eintrag weg.
      Die Zeitmarke kommt aus der gefundenen Stelle. Gefiltert wird im Code. Läuft ein Abschnitt
      fast über den Kontext, wird er geteilt und neu ausgewertet.
-  3. Die relevantesten Einträge jeder Liste führt das Modell mit Nachdenken zusammen.
+  3. Die relevantesten Einträge jeder Liste führt das Modell mit Nachdenken zusammen. Bei nur einem
+     Abschnitt mit wenigen Einträgen entfällt das. Ist die Antwort nicht lesbar, weil das Nachdenken die
+     Grenze erreicht hat, folgt ein zweiter Versuch ohne Nachdenken, erst danach die Auswahl nach Relevanz.
   4. Hashtags vergibt ein eigener Durchgang, der nur die fertigen Einträge sieht und nicht das
      Interessenprofil. Danach angleichen: Der Code übernimmt die Schreibweise vorhandener Hashtags, wenn sie
      sich nur in Groß- und Kleinschreibung oder Umlauten unterscheiden. Für die übrigen fragt
      ein kurzer Durchgang ohne Nachdenken, ob ein vorhandener Hashtag dasselbe meint, etwa KI
-     und KuenstlicheIntelligenz. Nur dann wird ersetzt. Neue Hashtags bleiben erlaubt.
+     und KuenstlicheIntelligenz. Nur dann wird ersetzt. Neue Hashtags bleiben erlaubt, aber keine Sätze:
+     mehr als drei Wortteile oder Füllwörter wie Und, Ist, Von führen zum Verwerfen.
   5. Markdown-Notiz nach NOTIZEN/inhalt/notizen/ schreiben, gegliedert in Teile.
 
 Die rohen Antworten des Modells landen unter DATEN/auswertungen/<quelle>/.
@@ -46,6 +49,11 @@ MIN_RELEVANZ = 3
 MIN_RELEVANZ_THESEN = 4
 ZUM_ZUSAMMENFUEHREN_PRO_LISTE = 15
 DENKEN_HOECHSTENS = 4000
+OHNE_DENKEN_HOECHSTENS = 2000  # zweiter Versuch beim Zusammenführen, wenn das Nachdenken die Grenze erreicht
+HASHTAG_HOECHSTENS_TEILE = 3  # Hashtags aus mehr Wortteilen sind meist Sätze und keine Schlagwörter
+FUELLWOERTER = {"und", "oder", "von", "vom", "ist", "sind", "der", "die", "das", "den", "dem", "des",
+                "im", "in", "am", "an", "zu", "zum", "zur", "mit", "für", "fuer", "als", "auf", "aus",
+                "bei", "nach", "über", "ueber", "gegen", "ohne", "durch", "wie", "wird", "werden"}
 SEKUNDEN_PRO_ABSCHNITT = 150  # Schätzung, solange noch kein Abschnitt gemessen ist
 SEKUNDEN_ZUSAMMENFUEHREN = 150
 ABGEBROCHEN = 3
@@ -330,6 +338,17 @@ def sauberer_hashtag(wort):
     return re.sub(r"[^\wÄÖÜäöüß]", "", wort.replace("#", "").strip())
 
 
+def wortteile(hashtag):
+    """Zerlegt einen zusammengeschriebenen Hashtag: KuenstlicheIntelligenz → Kuenstliche, Intelligenz; KI bleibt ein Teil."""
+    return re.findall(r"[A-ZÄÖÜ]+(?=[A-ZÄÖÜ][a-zäöüß]|[^A-Za-zÄÖÜäöüß]|$)|[A-ZÄÖÜ]?[a-zäöüß]+|\d+", hashtag)
+
+
+def ist_schlagwort(hashtag):
+    """Verwirft Hashtags, die eher ein Satz sind, etwa KriegIstProfitabelFuerKapital."""
+    teile = wortteile(hashtag)
+    return 0 < len(teile) <= HASHTAG_HOECHSTENS_TEILE and not any(t.lower() in FUELLWOERTER for t in teile[1:])
+
+
 def vergleichsform(wort):
     """Schreibweise für den Vergleich: klein, Umlaute ausgeschrieben."""
     wort = wort.lower()
@@ -416,16 +435,22 @@ def vergib_hashtags(konfiguration, meta, funde):
         "Aufgabe: Vergib drei bis sechs Hashtags, die die Themen dieser Einträge beschreiben. "
         "Nur Themen, die in den Einträgen tatsächlich vorkommen, keine allgemeinen Oberbegriffe, die nicht "
         "darin stehen. Deutsche Schlagwörter ohne Raute, zusammengeschrieben mit großem Anfangsbuchstaben. "
-        "Eigennamen wie Palantir oder Mastodon dürfen Hashtags sein. Keine Namen von Sendung oder Sender."
+        "Eigennamen wie Palantir oder Mastodon dürfen Hashtags sein. Keine Namen von Sendung oder Sender. "
+        "Jeder Hashtag ist ein Schlagwort aus höchstens zwei Wörtern, etwa Datenschutz, Zentralbank oder "
+        "KuenstlicheIntelligenz, niemals ein Satz oder eine Aussage. Nur Substantive oder Eigennamen, wie sie "
+        "in einem Sachregister stünden, keine Bewertungen: Genozid statt GenozidProfitabel, Kapitalismus statt "
+        "KapitalismusZerstoerung."
     )
     schema = {"type": "object", "properties": {"hashtags": {"type": "array", "items": {"type": "string"}}},
               "required": ["hashtags"]}
     roh, statistik = frage_modell(konfiguration, inhalt, schema)
     try:
-        hashtags = [str(h) for h in json.loads(roh).get("hashtags", [])][:6]
+        vorgeschlagen = [str(h) for h in json.loads(roh).get("hashtags", [])]
     except json.JSONDecodeError:
-        hashtags = []
-    return hashtags, {"schritt": "hashtags vergeben", "roh": roh, **statistik}
+        vorgeschlagen = []
+    hashtags = [h for h in vorgeschlagen if ist_schlagwort(sauberer_hashtag(h))][:6]
+    verworfen = [h for h in vorgeschlagen if not ist_schlagwort(sauberer_hashtag(h))]
+    return hashtags, {"schritt": "hashtags vergeben", "roh": roh, "verworfen": verworfen, **statistik}
 
 
 def erster_satz(text):
@@ -596,7 +621,15 @@ def main():
         protokoll.append({"schritt": f"abschnitt {nr}", "von": von, "bis": bis, "antwort": antwort, **statistik})
 
     funde, hashtags = [], []
-    if any(behalten.values()):
+    if nr == 1 and any(behalten.values()) and all(len(behalten[n]) <= l["hoechstens"] for n, l in fmt["listen"].items()):
+        # Ein einziger Abschnitt mit wenigen Einträgen: nichts zusammenzuführen, keine Dopplungen möglich
+        for name in fmt["listen"]:
+            funde += [{key: k[key] for key in ("zeitmarke", "titel", "art", "beschreibung")} for k in behalten[name]]
+        funde.sort(key=lambda f: in_sekunden(f["zeitmarke"]))
+        uebersicht = ", ".join(f"{len(behalten[n])} {n}" for n in fmt["listen"])
+        print(f"  Zusammenführen entfällt (ein Abschnitt): aus {uebersicht} wurden {len(funde)} Einträge")
+        protokoll.append({"schritt": "zusammenführen entfällt", "eintraege": len(funde)})
+    elif any(behalten.values()):
         bloecke, erlaubt, eingereicht = [], set(), {}
         for name in fmt["listen"]:
             auswahl = sorted(behalten[name], key=lambda k: -k["relevanz"])[:ZUM_ZUSAMMENFUEHREN_PRO_LISTE]
@@ -614,13 +647,22 @@ def main():
             + f"\n\n---\n\nInteressenprofil:\n\n{profil}\n\n---\n\n{hinweise}{aufgabe_zusammen(fmt)}"
         )
         roh, statistik = frage_modell(konfiguration, inhalt, schema_zusammen(fmt), denken=True, hoechstens_token=DENKEN_HOECHSTENS)
+        art = "mit Nachdenken"
+        try:
+            json.loads(roh)
+        except json.JSONDecodeError:
+            # Das Nachdenken hat die Grenze erreicht, bevor eine Antwort kam: zweiter Versuch ohne Nachdenken
+            erster = bericht(statistik)
+            protokoll.append({"schritt": "zusammenführen mit Nachdenken, nicht lesbar", "roh": roh, **statistik})
+            roh, statistik = frage_modell(konfiguration, inhalt, schema_zusammen(fmt), denken=False,
+                                          hoechstens_token=OHNE_DENKEN_HOECHSTENS)
+            art = f"ohne Nachdenken im zweiten Versuch (erster Versuch nicht lesbar: {erster})"
         try:
             antwort = json.loads(roh)
             for name, liste in fmt["listen"].items():
                 for f in antwort.get(name, []):
                     f["zeitmarke"] = einheitliche_marke(f.get("zeitmarke", ""))
                 funde += [f for f in antwort.get(name, []) if f["zeitmarke"] in erlaubt][: liste["hoechstens"]]
-            art = "mit Nachdenken"
         except json.JSONDecodeError:
             for name, liste in fmt["listen"].items():
                 beste = sorted(eingereicht[name], key=lambda k: -k["relevanz"])[: liste["hoechstens"]]
@@ -634,11 +676,12 @@ def main():
     if funde:
         hashtags, eintrag = vergib_hashtags(konfiguration, meta, funde)
         protokoll.append(eintrag)
-        print(f"  Hashtags vergeben: {bericht(eintrag)}")
+        print(f"  Hashtags vergeben: {bericht(eintrag)}"
+              + (f"; verworfen, weil kein Schlagwort: {', '.join(eintrag['verworfen'])}" if eintrag["verworfen"] else ""))
         if not hashtags:
             # Ersatz: die häufigsten Hashtags der Kandidaten aus den Abschnitten
             zaehler = Counter(sauberer_hashtag(h) for liste in behalten.values() for k in liste for h in k.get("hashtags", []))
-            hashtags = [h for h, _ in zaehler.most_common(6) if h]
+            hashtags = [h for h, _ in zaehler.most_common(12) if h and ist_schlagwort(h)][:6]
 
     tags, angeglichen = [], []
     if funde:

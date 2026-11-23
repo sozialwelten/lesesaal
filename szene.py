@@ -14,8 +14,11 @@ Gefundene Feed-Adressen merkt es sich in DATEN/szene/feeds.json.
 
 Das Modell bekommt die neuen Beiträge nummeriert, bewertet jeden gegen das Interessenprofil und
 fasst die relevanten in ein bis zwei Sätzen zusammen. Übernommen wird ab Relevanz 3. Die Notiz
-heißt „Szene am TT.MM.JJJJ“ und verlinkt jeden Eintrag auf den Beitrag und auf die Links darin.
+heißt „NAME am TT.MM.JJJJ“ (NAME aus [szene] name in config.toml, Vorgabe „Fedi“) und verlinkt jeden Eintrag auf den Beitrag und auf die Links darin.
 Bereits gesehene Beiträge stehen in DATEN/szene/gesehen.json.
+
+Außerdem schreibt es bei jedem Lauf NOTIZEN/inhalt/quelle/szene/_index.md: die Seite der Quelle auf der
+Lesesaal-Seite mit allen beobachteten Konten, ihrem Profil und ob ihr Feed lesbar ist.
 
 Ausgabe: der Pfad der Notiz in der letzten Zeile, oder „keine Notiz“.
 """
@@ -205,17 +208,56 @@ def bewerte(konfiguration, profil, beitraege):
     return ergebnis, statistik
 
 
+def profil_adresse(konto, feed_adresse):
+    """Profilseite eines Kontos: aus der Feed-Adresse, sonst nach dem Mastodon-Muster."""
+    if feed_adresse and feed_adresse.endswith(".rss"):
+        return feed_adresse[:-4]
+    if feed_adresse:
+        friendica = re.match(r"(https://[^/]+)/feed/([^/?#]+)$", feed_adresse)
+        if friendica:
+            return f"{friendica.group(1)}/profile/{friendica.group(2)}"
+    name, instanz = konto.split("@", 1)
+    return f"https://{instanz}/@{name}"
+
+
+def schreibe_kontenseite(pfad, name, konten, feeds, zustand, stand):
+    """Übersicht der beobachteten Konten als Inhalt der Quellenseite. Schreibt nur, wenn sich etwas geändert hat."""
+    zeilen = [
+        "---",
+        f"title: {json.dumps(name, ensure_ascii=False)}",
+        "---",
+        "",
+        f"{name} liest jeden Tag die öffentlichen Beiträge dieser Fediverse-Konten über ihre RSS-Feeds. "
+        "Ein lokales Sprachmodell wählt aus, was zum Interessenprofil passt, und schreibt daraus eine Meldungsliste. "
+        "Konten mit #nobot im Profil werden ausgelassen.",
+        "",
+        f"## Beobachtete Konten ({len(konten)})",
+        "",
+        "| Konto | Zustand | bisher gelesen |",
+        "|---|---|---|",
+    ]
+    for konto in sorted(konten, key=str.lower):
+        zeilen.append(f"| [@{konto}]({profil_adresse(konto, feeds.get(konto))}) | {zustand.get(konto, 'nicht geprüft')} "
+                      f"| {len(stand.get(konto, []))} Beiträge |")
+    text = "\n".join(zeilen) + "\n"
+    if pfad.exists() and pfad.read_text(encoding="utf-8") == text:
+        return False
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    pfad.write_text(text, encoding="utf-8")
+    return True
+
+
 def domain(adresse):
     return re.sub(r"^https?://(www\.)?", "", adresse).split("/")[0]
 
 
-def schreibe_notiz(pfad, titel, datum, eintraege, tags, anzahl_beitraege, anzahl_konten):
+def schreibe_notiz(pfad, titel, datum, eintraege, tags, anzahl_beitraege, anzahl_konten, name="Fedi"):
     zeilen = [
         "---",
         f"title: {json.dumps(titel, ensure_ascii=False)}",
         f"date: {datum}",
         'quelle: "szene"',
-        'quelle_name: "Fediverse-Szene"',
+        f"quelle_name: {json.dumps(name, ensure_ascii=False)}",
         'zweck: "tech"',
         'format: "meldungen"',
         f"tags: {json.dumps(tags, ensure_ascii=False)}",
@@ -224,7 +266,7 @@ def schreibe_notiz(pfad, titel, datum, eintraege, tags, anzahl_beitraege, anzahl
         'audio: ""',
         "---",
         "",
-        f"Meldungsliste aus {anzahl_beitraege} neuen Beiträgen von {anzahl_konten} Konten.",
+        f"Meldungsliste aus {anzahl_beitraege} neuen öffentlichen Beiträgen von {anzahl_konten} beobachteten Fediverse-Konten.",
         "",
         "## Meldungen",
         "",
@@ -256,16 +298,19 @@ def main():
 
     konten = lies_konten(notizen / "szene.txt")
     seit = datetime.now(timezone.utc) - timedelta(days=args.tage)
-    neu, nobot = [], []
+    neu, nobot, zustand = [], [], {}
     for konto in konten:
         try:
             beitraege = lies_beitraege(konto, seit, feeds)
         except Exception as fehler:  # noqa: BLE001
             print(f"  FEHLER bei @{konto}: {fehler}")
+            zustand[konto] = "Feed nicht lesbar"
             continue
         if beitraege is None:
             nobot.append(konto)
+            zustand[konto] = "ausgelassen, #nobot im Profil"
             continue
+        zustand[konto] = "Feed lesbar"
         bekannt = set(stand.get(konto, []))
         frisch = [b for b in beitraege if b["id"] not in bekannt]
         print(f"  @{konto}: {len(frisch)} neu")
@@ -273,6 +318,10 @@ def main():
     for konto in nobot:
         print(f"  @{konto}: #nobot im Profil, ausgelassen")
     feeds_pfad.write_text(json.dumps(feeds, ensure_ascii=False, indent=1), encoding="utf-8")
+    if not args.nur_zeigen:
+        seite = notizen / "inhalt" / "quelle" / "szene" / "_index.md"
+        if schreibe_kontenseite(seite, konfiguration.get("szene", {}).get("name", "Fedi"), konten, feeds, zustand, stand):
+            print(f"  Kontenseite aktualisiert: {seite}")
 
     if args.nur_zeigen:
         for b in neu:
@@ -300,6 +349,7 @@ def main():
         return
 
     heute = datetime.now()
+    name = konfiguration.get("szene", {}).get("name", "Fedi")
     stem = f"{heute:%Y-%m-%d}_szene"
     notizordner = notizen / "inhalt" / "notizen"
     nr = 2
@@ -308,7 +358,7 @@ def main():
         nr += 1
 
     funde = [{"titel": e["titel"], "art": e["art"], "beschreibung": e["beschreibung"]} for e in eintraege]
-    hashtags, _ = vergib_hashtags(konfiguration, {"titel": f"Szene am {heute:%d.%m.%Y}"}, funde)
+    hashtags, _ = vergib_hashtags(konfiguration, {"titel": f"{name} am {heute:%d.%m.%Y}"}, funde)
     bekannt = vorhandene_hashtags(notizordner, stem)
     schreibweise = {vergleichsform(t): t for t in reversed(bekannt)}
     tags = ["Tech"]
@@ -323,8 +373,8 @@ def main():
     tags = list(dict.fromkeys(zuordnung.get(t, t) for t in tags))
 
     pfad = notizordner / f"{stem}.md"
-    schreibe_notiz(pfad, f"Szene am {heute:%d.%m.%Y}", f"{heute:%Y-%m-%d}", eintraege, tags,
-                   len(neu), len({b["konto"] for b in neu}))
+    schreibe_notiz(pfad, f"{name} am {heute:%d.%m.%Y}", f"{heute:%Y-%m-%d}", eintraege, tags,
+                   len(neu), len({b["konto"] for b in neu}), name)
     stand_pfad.write_text(json.dumps(stand, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"{len(eintraege)} Einträge aus {len(neu)} Beiträgen")
     print(pfad)

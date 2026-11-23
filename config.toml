@@ -29,7 +29,7 @@ bericht_als_direktnachricht = true
 
 [szene]
 aktiv = true
-name = "Fediverse-Szene"
+name = "Fedi"
 
 [termine]
 aktiv = true

@@ -36,7 +36,7 @@ Kalender, Feeds, Pads ─────► termine ──────────�
 1. **Feeds abfragen.** Beim ersten Lauf einer Quelle kommen die neueste Folge und `rueckstand` ältere dazu, danach nur Folgen, die neuer sind als die bekannten. Mit `vorauswahl` bewertet das Modell vorher die Titel gegen das Interessenprofil und nimmt nur die passendsten.
 2. **Laden und transkribieren**, neue Folgen zuerst. Bei Videos nur die Tonspur. Die Audiodatei wird danach gelöscht.
 3. **Auswerten**, erst wenn alles transkribiert ist. Whisper und das Sprachmodell passen nicht gleichzeitig in den Grafikspeicher.
-4. **Szene:** öffentliche Beiträge ausgewählter Fediverse-Konten lesen und als Tagesnotiz auswerten.
+4. **Fedi:** öffentliche Beiträge ausgewählter Fediverse-Konten lesen und als Tagesnotiz „Fedi am TT.MM.JJJJ“ auswerten. Die Quellenseite zeigt alle beobachteten Konten mit Profil, Zustand des Feeds und Zahl der gelesenen Beiträge (`inhalt/quelle/szene/_index.md`, bei jedem Lauf erneuert). Intern heißen Skript, Ordner und Kennung weiter `szene`.
 5. **Termine:** Kalender, Feeds und Pads lesen, Termine auswählen, Seite und Kalender schreiben.
 6. **Veröffentlichen:** Seite bauen und hochladen, je neue Notiz einen Thread posten, die Notizen im Notizen-Repository committen.
 7. **Bericht** als Datei und als Direktnachricht, mit den Terminen der nächsten 48 Stunden, den neuen Notizen nach Quelle gruppiert und einem Link zur Seite.
@@ -53,8 +53,8 @@ Das lokale Modell (qwen3:32b mit 8.192 Token Kontext) bekommt das Transkript in 
 
 - **Einordnen statt verbieten.** Verbote in der Anweisung befolgt das Modell nicht zuverlässig. Es liefert deshalb zu jedem Kandidaten eine Einordnung: konkreter Name, Teil einer Erzählung, Hinweis der Sendung auf sich selbst, Relevanz von 1 bis 5. Der Code sortiert danach aus und zählt die Gründe.
 - **Belegstelle.** Zu jedem Kandidaten gibt das Modell ein wörtliches Stück aus dem Transkript an. Der Code sucht es. Fehlt es, oder steht in einer Minute Umkreis kein Wort des Titels, fällt der Eintrag weg. Die Zeitmarke kommt sekundengenau aus der gefundenen Stelle. Das verhindert erfundene Einträge, die nur zum Interessenprofil passen.
-- **Zusammenführen mit Nachdenken.** Die relevantesten Kandidaten jeder Liste gehen in einen letzten Durchgang, der Doppeltes zusammenfasst. Der Code prüft, dass nur eingereichte Zeitmarken zurückkommen, und bringt sie vorher in eine einheitliche Form.
-- **Hashtags ohne Interessenprofil.** Ein eigener Durchgang sieht nur die fertigen Einträge. Danach gleicht der Code die Schreibweise an vorhandene Hashtags an, und ein kurzer Durchgang meldet echte Entsprechungen wie KI und KuenstlicheIntelligenz. Neue Hashtags bleiben erlaubt.
+- **Zusammenführen mit Nachdenken.** Die relevantesten Kandidaten jeder Liste gehen in einen letzten Durchgang, der Doppeltes zusammenfasst. Der Code prüft, dass nur eingereichte Zeitmarken zurückkommen, und bringt sie vorher in eine einheitliche Form. Hat die Folge nur einen Abschnitt und nicht mehr Einträge, als die Notiz aufnimmt, entfällt der Durchgang, weil es nichts zusammenzuführen gibt. Erreicht das Nachdenken die Grenze von 4.000 Token, ohne zu antworten, folgt ein zweiter Versuch ohne Nachdenken. Erst wenn auch der scheitert, wird nach Relevanz ausgewählt.
+- **Hashtags ohne Interessenprofil.** Ein eigener Durchgang sieht nur die fertigen Einträge. Danach gleicht der Code die Schreibweise an vorhandene Hashtags an, und ein kurzer Durchgang meldet echte Entsprechungen wie KI und KuenstlicheIntelligenz. Neue Hashtags bleiben erlaubt, aber nur als Schlagwort: Hashtags aus mehr als drei Wortteilen oder mit Füllwörtern wie Und, Ist oder Von verwirft der Code, etwa KriegIstProfitabelFuerKapital.
 - **Schutz gegen Überlauf.** Läuft ein Abschnitt fast über den Kontext, wird er geteilt.
 - **Entscheidungen speichern.** Das Modell antwortet auf dieselbe Frage nicht immer gleich. Bei Terminen bewertet es jede Reihe deshalb nur einmal, die Entscheidung bleibt gespeichert und lässt sich von Hand ändern.
 - **Zählen und Daten macht der Code**, nicht das Modell.
@@ -75,7 +75,7 @@ Jede Notiz hat zuerst den Status „ungeprüft“. Nach dem Abgleich mit dem Ori
 | `threads_loeschen.py` | alle Threads des Kontos löschen, Direktnachrichten bleiben |
 | `tagesbetrieb.py` | alle Schritte für alle Quellen, mit Stand, Stopp, Temperatur, Bericht |
 | `pruefen.py` | Status einer Notiz auf „geprüft“ setzen, committen, hochladen |
-| `config.toml` | Pfade, Modell, Whisper, Quellen, Tagesbetrieb, Szene, Termine, Adresse der Seite |
+| `config.toml` | Pfade, Modell, Whisper, Quellen, Tagesbetrieb, Fedi (Abschnitt `[szene]`), Termine, Adresse der Seite |
 | `seite/` | Hugo-Konfiguration und Vorlagen |
 | `requirements.txt` | Python-Pakete |
 
@@ -170,7 +170,7 @@ ohne_titel_mit = ["#ad"]                # optional
 
 Formate: `tech`, `gespraech`, `finanzen`, `lernstoff`. Die Meldungsliste schreibt `szene.py`.
 
-Der Tagesbetrieb, die Szene und die Termine:
+Der Tagesbetrieb, Fedi und die Termine:
 
 ```toml
 [betrieb]
@@ -184,7 +184,7 @@ bericht_als_direktnachricht = true
 
 [szene]
 aktiv = true
-name = "Fediverse-Szene"
+name = "Fedi"
 
 [termine]
 aktiv = true
@@ -206,7 +206,7 @@ Aus dem Projektordner:
 .venv/bin/python holen.py QUELLE --laden NR       Folge Nr. NR laden
 .venv/bin/python transkribieren.py AUDIODATEI     transkribieren (--neu, --sprache de)
 .venv/bin/python auswerten.py TRANSKRIPT.json     auswerten und Notiz schreiben
-.venv/bin/python szene.py --nur-zeigen            neue Beiträge der Szene anzeigen (--tage N)
+.venv/bin/python szene.py --nur-zeigen            neue Beiträge der beobachteten Konten anzeigen (--tage N)
 .venv/bin/python termine.py --nur-zeigen          Termine und Auswahl anzeigen
 .venv/bin/python termine.py --an "MUSTER"         eine Terminreihe künftig aufnehmen (--aus: weglassen)
 .venv/bin/python bauen.py --vorschau              lokale Vorschau unter http://localhost:1313/

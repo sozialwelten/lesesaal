@@ -179,7 +179,7 @@ class Betrieb:
 
     def quellenname(self, kennung):
         if kennung == "szene":
-            return self.konf.get("szene", {}).get("name", "Fediverse-Szene")
+            return self.konf.get("szene", {}).get("name", "Fedi")
         return next((q["name"] for q in self.konf["quelle"] if q["kennung"] == kennung), kennung)
 
     def nach_quelle(self):
@@ -587,7 +587,7 @@ class Betrieb:
         if not (self.notizen.parent.parent / "szene.txt").exists():
             log("Szene: keine szene.txt im Notizen-Repository")
             return
-        log("Szene-Konten")
+        log(f"{self.quellenname('szene')}: Fediverse-Konten")
         ergebnis = subprocess.run([sys.executable, "szene.py"], cwd=PROJEKT, capture_output=True, text=True,
                                   env=dict(os.environ, PYTHONUNBUFFERED="1"))
         print(ergebnis.stdout, end="", flush=True)
@@ -600,7 +600,7 @@ class Betrieb:
         if not letzte.endswith(".md") or not notiz.exists():
             return
         self.stand[f"szene/{notiz.stem}"] = {
-            "quelle": "szene", "titel": f"Szene am {datetime.now():%d.%m.%Y}", "datum": f"{datetime.now():%Y-%m-%d}",
+            "quelle": "szene", "titel": f"{self.quellenname('szene')} am {datetime.now():%d.%m.%Y}", "datum": f"{datetime.now():%Y-%m-%d}",
             "datei": f"{notiz.stem}.txt", "neu": True, "gefunden": datetime.now().isoformat(timespec="seconds"),
             "stufe": "gefunden", "versuche": 0, "fehler": "",
         }
@@ -660,6 +660,9 @@ class Betrieb:
         mit_terminen = self.termine_geaendert and not aufarbeitung
         if mit_terminen:
             dateien += ["inhalt/termine/index.md", "inhalt/termine/termine.ics"]
+        kontenseite = "inhalt/quelle/szene/_index.md"
+        if not aufarbeitung and dateien and (self.notizen.parent.parent / kontenseite).exists():
+            dateien.append(kontenseite)
         if not dateien:
             return
         repo = self.notizen.parent.parent
