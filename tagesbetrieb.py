@@ -677,6 +677,14 @@ class Betrieb:
             log(f"  committet: {nachricht}")
         except subprocess.CalledProcessError as fehler:
             log(f"  Commit der Notizen fehlgeschlagen: {fehler.stderr.decode(errors='replace').strip()}")
+            return
+        try:
+            subprocess.run(["git", "-C", str(repo), "push", "-q"], check=True, capture_output=True, timeout=120)
+            log("  gepusht")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as fehler:
+            text = fehler.stderr.decode(errors="replace").strip() if getattr(fehler, "stderr", None) else str(fehler)
+            log(f"  Push der Notizen fehlgeschlagen: {text}")
+            self.fehler.append("Notizen: Push fehlgeschlagen, Commit liegt nur lokal")
 
     # Aufarbeitung
 

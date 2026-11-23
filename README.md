@@ -38,7 +38,7 @@ Kalender, Feeds, Pads ─────► termine ──────────�
 3. **Auswerten**, erst wenn alles transkribiert ist. Whisper und das Sprachmodell passen nicht gleichzeitig in den Grafikspeicher.
 4. **Fedi:** öffentliche Beiträge ausgewählter Fediverse-Konten lesen und als Tagesnotiz „Fedi am TT.MM.JJJJ“ auswerten. Die Quellenseite zeigt alle beobachteten Konten mit Profil, Zustand des Feeds und Zahl der gelesenen Beiträge (`inhalt/quelle/szene/_index.md`, bei jedem Lauf erneuert). Intern heißen Skript, Ordner und Kennung weiter `szene`.
 5. **Termine:** Kalender, Feeds und Pads lesen, Termine auswählen, Seite und Kalender schreiben.
-6. **Veröffentlichen:** Seite bauen und hochladen, je neue Notiz einen Thread posten, die Notizen im Notizen-Repository committen.
+6. **Veröffentlichen:** Seite bauen und hochladen, je neue Notiz einen Thread posten, die Notizen im Notizen-Repository committen und pushen. Scheitert der Push, steht das im Tagesbericht, und der Commit bleibt lokal bis zum nächsten Lauf.
 7. **Bericht** als Datei und als Direktnachricht, mit den Terminen der nächsten 48 Stunden, den neuen Notizen nach Quelle gruppiert und einem Link zur Seite.
 
 Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht.
