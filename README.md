@@ -72,6 +72,7 @@ Jede Notiz hat zuerst den Status „ungeprüft“. Nach dem Abgleich mit dem Ori
 | `termine.py` | Termine aus iCal, Feeds und Pads sammeln, auswählen, Seite und Kalender schreiben |
 | `bauen.py` | Seite mit Hugo bauen, Suchindex mit Pagefind, per FTPS hochladen |
 | `posten.py` | Hinweis auf eine Notiz als Thread bei Mastodon |
+| `nachricht.py` | Text von der Standardeingabe als Direktnachricht an `bericht_an`, etwa für den Bericht des Dirigenten |
 | `threads_loeschen.py` | alle Threads des Kontos löschen, Direktnachrichten bleiben |
 | `tagesbetrieb.py` | alle Schritte für alle Quellen, mit Stand, Stopp, Temperatur, Bericht |
 | `pruefen.py` | Status einer Notiz auf „geprüft“ setzen, committen, hochladen |
