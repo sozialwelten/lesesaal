@@ -5,6 +5,9 @@ Aufruf:
   .venv/bin/python bauen.py --vorschau   lokale Vorschau unter http://localhost:1313/ (ohne Suche)
   .venv/bin/python bauen.py --hochladen  baut und lädt per FTPS hoch
 
+Exit-Codes: 0 fertig, 3 gebaut, aber das Hochladen ist gescheitert (Netz oder Webspace),
+sonst ist das Bauen gescheitert.
+
 Aus der .env im Projektordner:
   FTP_HOST, FTP_BENUTZER, FTP_PASSWORT, GEHEIMER_PFAD
 
@@ -27,6 +30,7 @@ import tomllib
 from pathlib import Path
 
 PROJEKT = Path(__file__).resolve().parent
+HOCHLADEN_GESCHEITERT = 3
 
 
 def lies_env():
@@ -93,10 +97,14 @@ def main():
         f"mirror --reverse --delete --verbose=1 '{wurzel}/' /; quit"
     )
     umgebung = dict(os.environ, LFTP_PASSWORD=env["FTP_PASSWORT"])
-    subprocess.run(
-        ["lftp", "--env-password", "-u", env["FTP_BENUTZER"], env["FTP_HOST"], "-e", befehle],
-        check=True, env=umgebung,
-    )
+    try:
+        subprocess.run(
+            ["lftp", "--env-password", "-u", env["FTP_BENUTZER"], env["FTP_HOST"], "-e", befehle],
+            check=True, env=umgebung,
+        )
+    except (OSError, subprocess.CalledProcessError) as fehler:
+        print(f"Hochladen gescheitert: {fehler}", file=sys.stderr)
+        sys.exit(HOCHLADEN_GESCHEITERT)
     print(f"Hochgeladen: {adresse}")
 
 

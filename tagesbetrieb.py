@@ -47,7 +47,8 @@ Folge an auf. Bei Quellen mit Vorauswahl entscheidet das Modell auch rückwirken
 Stufen je Folge: gefunden, geladen, transkribiert, ausgewertet, veroeffentlicht, ohne_funde.
 Der Stand liegt in DATEN/stand.json. Ein neuer Lauf macht dort weiter, wo der letzte aufhörte.
 Nach `fehlversuche` Fehlern bleibt eine Folge liegen, bis ihr Zähler in stand.json
-zurückgesetzt wird.
+zurückgesetzt wird. Scheitert nur das Hochladen der Seite (Netz oder Webspace), zählt das
+nicht als Fehlversuch: Die Folgen bleiben ausgewertet, der nächste Lauf lädt nach.
 
 Stoppsignal: Datei DATEN/stopp. Steht darin „aus“, fährt medienlabor danach herunter.
 Zwischen zwei Schritten hält das Programm sofort an. Eine laufende Transkription oder
@@ -74,7 +75,7 @@ from pathlib import Path
 
 import requests
 
-from bauen import PROJEKT, lies_env
+from bauen import HOCHLADEN_GESCHEITERT, PROJEKT, lies_env
 from holen import NochNichtFertig, Uebersprungen, dateiname, lade, lies_feed, lies_youtube_alle, schreibe_meta
 
 ABGEBROCHEN = 3
@@ -134,6 +135,26 @@ class Betrieb:
         self.fehler.append(f"{folge['titel']}: {text}")
         log(f"  FEHLER ({folge['versuche']}. Versuch): {text}")
         self.speichere()
+
+    def seite_hochladen(self, folgen, wofuer):
+        """Baut die Seite und lädt sie hoch. Gibt True zurück, wenn beides geklappt hat.
+
+        Scheitert nur das Hochladen, zählt das nicht gegen die Folgen. Sie bleiben ausgewertet
+        und kommen beim nächsten Lauf wieder dran. Scheitert das Bauen, zählt es je Folge."""
+        code = self.fuehre_aus([sys.executable, "bauen.py", "--hochladen"], ueberwachen=False)
+        if code == 0:
+            return True
+        if code == HOCHLADEN_GESCHEITERT:
+            text = f"{wofuer}: Hochladen gescheitert, der nächste Lauf lädt nach"
+            if text not in self.fehler:
+                self.fehler.append(text)
+            log(f"  FEHLER: {text}")
+        else:
+            for folge in folgen:
+                self.scheitert(folge, "Bauen fehlgeschlagen")
+            if not folgen:
+                self.fehler.append(f"{wofuer}: Bauen fehlgeschlagen")
+        return False
 
     def offen(self, stufe, archiv=False):
         """Folgen auf einer Stufe, die nicht liegen geblieben sind.
@@ -633,11 +654,7 @@ class Betrieb:
         if not warteschlange and not self.termine_geaendert:
             return
         log(f"Veröffentlichen: {len(warteschlange)} Notizen" + (", Termine geändert" if self.termine_geaendert else ""))
-        if self.fuehre_aus([sys.executable, "bauen.py", "--hochladen"], ueberwachen=False) != 0:
-            for folge in warteschlange:
-                self.scheitert(folge, "Bauen oder Hochladen fehlgeschlagen")
-            if not warteschlange:
-                self.fehler.append("Termine: Bauen oder Hochladen fehlgeschlagen")
+        if not self.seite_hochladen(warteschlange, "Seite" if warteschlange else "Termine"):
             return
         for folge in warteschlange:
             notiz = Path(folge["notiz"])
@@ -715,9 +732,7 @@ class Betrieb:
         if not folgen or self.stopp():
             return
         log(f"Aufarbeitung veröffentlichen: {len(folgen)} Notizen")
-        if self.fuehre_aus([sys.executable, "bauen.py", "--hochladen"], ueberwachen=False) != 0:
-            for folge in folgen:
-                self.scheitert(folge, "Bauen oder Hochladen fehlgeschlagen")
+        if not self.seite_hochladen(folgen, "Aufarbeitung"):
             return
         for folge in folgen:
             self.setze(folge, "veroeffentlicht")
