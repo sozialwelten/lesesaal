@@ -42,7 +42,7 @@ from auswerten import (PROJEKT, frage_modell, gleiche_an, profil_auszug, saubere
 
 KENNUNG_PROGRAMM = "lesesaal/0.1"
 MIN_RELEVANZ = 3
-PRO_ANFRAGE = 30
+PRO_ANFRAGE = 20  # Beiträge je Anfrage; bei 30 und langen Beiträgen wird der Kontext von 8.192 Token knapp
 ZEICHEN_PRO_BEITRAG = 700
 ARTEN = ["Meldung", "Termin", "Veranstaltung", "Projekt", "Werkzeug", "Organisation", "Initiative", "Literatur"]
 PROFIL = ["Tech", "Theorie", "Finanzen", "Netzwerk und Andocken"]

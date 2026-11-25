@@ -41,7 +41,7 @@ Kalender, Feeds, Pads ─────► termine ──────────�
 6. **Veröffentlichen:** Seite bauen und hochladen, je neue Notiz einen Thread posten, die Notizen im Notizen-Repository committen und pushen. Scheitert der Push, steht das im Tagesbericht, und der Commit bleibt lokal bis zum nächsten Lauf.
 7. **Bericht** als Datei und als Direktnachricht, mit den Terminen der nächsten 48 Stunden, den neuen Notizen nach Quelle gruppiert und einem Link zur Seite.
 
-Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht.
+Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht. Scheitert nur das Hochladen der Seite, zählt das nicht als Fehler der Folgen: Sie bleiben ausgewertet, und der nächste Lauf lädt nach.
 
 **Stoppsignal:** Die Datei `DATEN/stopp`. Zwischen zwei Schritten hält das Programm sofort an. Eine laufende Transkription oder Auswertung macht es fertig, wenn der geschätzte Rest in `stopp_hoechstens_minuten` passt, sonst bricht es sie ab. Fertige Notizen werden noch veröffentlicht. Steht in der Datei `aus`, fährt der Rechner danach herunter.
 
