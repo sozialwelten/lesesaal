@@ -89,7 +89,7 @@ def main():
         return
 
     befehle = (
-        "set ftp:ssl-force true; set ftp:ssl-protect-data true; set ssl:verify-certificate true; "
+        "set ftp:ssl-force true; set ftp:ssl-protect-data true; set ssl:verify-certificate true; set net:timeout 30; set net:max-retries 3; set net:reconnect-interval-base 10; set net:reconnect-interval-max 60; "
         f"mirror --reverse --delete --verbose=1 '{wurzel}/' /; quit"
     )
     umgebung = dict(os.environ, LFTP_PASSWORD=env["FTP_PASSWORT"])
