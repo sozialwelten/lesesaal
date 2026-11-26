@@ -42,7 +42,7 @@ Kalender, Feeds, Pads ─────► termine ──────────�
 7. **Bericht** als Datei und als Direktnachricht, mit den Terminen der nächsten 48 Stunden, den neuen Notizen nach Quelle gruppiert und einem Link zur Seite.
 8. **Aufarbeitung** älterer Folgen bis `archiv_bis`, siehe unten.
 
-Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht. Folgen der Aufarbeitung sind im Stand mit `archiv` markiert, `--stand` zeigt sie mit einem A. Scheitert nur das Hochladen der Seite, zählt das nicht als Fehler der Folgen: Sie bleiben ausgewertet, und der nächste Lauf lädt nach.
+Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht. Folgen der Aufarbeitung sind im Stand mit `archiv` markiert, `--stand` zeigt sie mit einem A. Scheitert nur das Hochladen der Seite, zählt das nicht als Fehler der Folgen: Sie bleiben ausgewertet, und der nächste Lauf lädt nach. Hochgeladen werden nur Dateien, die sich seit dem letzten Bau geändert haben, vier gleichzeitig. Nach `[seite] hochladen_hoechstens_minuten` (Vorgabe 20) bricht das Hochladen ab und gilt als gescheitert.
 
 **Stoppsignal:** Die Datei `DATEN/stopp`. Zwischen zwei Schritten hält das Programm sofort an. Eine laufende Transkription oder Auswertung macht es fertig, wenn der geschätzte Rest in `stopp_hoechstens_minuten` passt, sonst bricht es sie ab. Fertige Notizen werden noch veröffentlicht. Steht in der Datei `aus`, fährt der Rechner danach herunter.
 
@@ -83,7 +83,7 @@ Jede Notiz hat zuerst den Status „ungeprüft“. Nach dem Abgleich mit dem Ori
 | `auswerten.py` | Transkript mit dem Sprachmodell auswerten, Notiz schreiben; enthält die Formate |
 | `szene.py` | Fediverse-Konten über ihre RSS-Feeds lesen, mit Ausweichsuche über WebFinger, als Tagesnotiz auswerten |
 | `termine.py` | Termine aus iCal, Feeds und Pads sammeln, auswählen, Seite und Kalender schreiben |
-| `bauen.py` | Seite mit Hugo bauen, Suchindex mit Pagefind, per FTPS hochladen |
+| `bauen.py` | Seite mit Hugo bauen, Suchindex mit Pagefind, geänderte Dateien per FTPS hochladen |
 | `posten.py` | Hinweis auf eine Notiz als Thread bei Mastodon |
 | `nachricht.py` | Text von der Standardeingabe als Direktnachricht an `bericht_an`, etwa für den Bericht des Dirigenten |
 | `threads_loeschen.py` | alle Threads des Kontos löschen, Direktnachrichten bleiben |
@@ -260,7 +260,8 @@ DATEN/
   szene/                    gesehene Beiträge und funktionierende Feed-Adressen
   termine/                  Auswahl je Terminreihe, bekannte Termine, Termine der nächsten 48 Stunden
   archiv/                   Kanallisten von YouTube für die Aufarbeitung
-  seite/                    gebaute Seite
+  seite_bau/                frisch gebaute Seite, wird danach mit seite/ abgeglichen
+  seite/                    Seite wie auf dem Webspace, unveränderte Dateien behalten ihre Zeit
   berichte/                 Tagesberichte und Berichte der Aufarbeitung
   logs/tagesbetrieb.log     Verlauf
   stand.json                Stufe jeder Folge
