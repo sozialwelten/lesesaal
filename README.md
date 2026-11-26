@@ -33,19 +33,32 @@ Kalender, Feeds, Pads ─────► termine ──────────�
 
 `tagesbetrieb.py` führt diese Schritte für alle Quellen nacheinander aus und merkt sich den Stand jeder Folge.
 
-1. **Feeds abfragen.** Beim ersten Lauf einer Quelle kommen die neueste Folge und `rueckstand` ältere dazu, danach nur Folgen, die neuer sind als die bekannten. Mit `vorauswahl` bewertet das Modell vorher die Titel gegen das Interessenprofil und nimmt nur die passendsten.
+1. **Feeds abfragen.** Beim ersten Lauf einer Quelle kommt nur die neueste Folge dazu, danach nur Folgen, die neuer sind als die bekannten. Ältere Folgen im Rückstand der Quelle werden zur Aufarbeitung eingetragen, siehe unten. Mit `vorauswahl` bewertet das Modell vorher die Titel gegen das Interessenprofil und nimmt nur die passendsten.
 2. **Laden und transkribieren**, neue Folgen zuerst. Bei Videos nur die Tonspur. Die Audiodatei wird danach gelöscht.
 3. **Auswerten**, erst wenn alles transkribiert ist. Whisper und das Sprachmodell passen nicht gleichzeitig in den Grafikspeicher.
 4. **Fedi:** öffentliche Beiträge ausgewählter Fediverse-Konten lesen und als Tagesnotiz „Fedi am TT.MM.JJJJ“ auswerten. Die Quellenseite zeigt alle beobachteten Konten mit Profil, Zustand des Feeds und Zahl der gelesenen Beiträge (`inhalt/quelle/szene/_index.md`, bei jedem Lauf erneuert). Intern heißen Skript, Ordner und Kennung weiter `szene`.
 5. **Termine:** Kalender, Feeds und Pads lesen, Termine auswählen, Seite und Kalender schreiben.
 6. **Veröffentlichen:** Seite bauen und hochladen, je neue Notiz einen Thread posten, die Notizen im Notizen-Repository committen und pushen. Scheitert der Push, steht das im Tagesbericht, und der Commit bleibt lokal bis zum nächsten Lauf.
 7. **Bericht** als Datei und als Direktnachricht, mit den Terminen der nächsten 48 Stunden, den neuen Notizen nach Quelle gruppiert und einem Link zur Seite.
+8. **Aufarbeitung** älterer Folgen bis `archiv_bis`, siehe unten.
 
-Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht. Scheitert nur das Hochladen der Seite, zählt das nicht als Fehler der Folgen: Sie bleiben ausgewertet, und der nächste Lauf lädt nach.
+Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht. Folgen der Aufarbeitung sind im Stand mit `archiv` markiert, `--stand` zeigt sie mit einem A. Scheitert nur das Hochladen der Seite, zählt das nicht als Fehler der Folgen: Sie bleiben ausgewertet, und der nächste Lauf lädt nach.
 
 **Stoppsignal:** Die Datei `DATEN/stopp`. Zwischen zwei Schritten hält das Programm sofort an. Eine laufende Transkription oder Auswertung macht es fertig, wenn der geschätzte Rest in `stopp_hoechstens_minuten` passt, sonst bricht es sie ab. Fertige Notizen werden noch veröffentlicht. Steht in der Datei `aus`, fährt der Rechner danach herunter.
 
 **Temperatur:** Erreicht eine Grafikkarte `temperatur_pause`, wird der laufende Schritt mit SIGSTOP angehalten, bis alle Karten unter `temperatur_weiter` liegen.
+
+## Aufarbeitung
+
+Ältere Folgen arbeitet der Tagesbetrieb nach dem eigentlichen Lauf auf. Wie weit es zurückgeht, legt `rueckstand` je Quelle fest: Eine Zahl heißt so viele Folgen vor der neuesten, `"alles"` heißt der ganze Feed. Ohne Angabe gilt `rueckstand_wochen` aus `[betrieb]`, Vorgabe 4 Wochen, 0 schaltet ab. Bei YouTube enthält der Feed nur die letzten 15 Videos. Reicht das nicht, listet yt-dlp den Kanal und speichert die Liste unter `DATEN/archiv/`.
+
+Aufgearbeitete Folgen kommen nur ins Archiv der Seite, mit ihrem echten Datum. Sie bekommen keinen Thread, die Direktnachricht nennt nur den Fortschritt („Aufarbeitung: 29 erledigt, 509 offen“). Gearbeitet wird in Blöcken von `archiv_block` Folgen, Vorgabe 4: laden, transkribieren, auswerten, Seite hochladen, Notizen committen. Das wiederholt sich, bis `archiv_bis` erreicht ist (Vorgabe 17:00), das Stoppsignal kommt, nichts mehr offen ist oder ein Block keinen Fortschritt bringt. Die Frist wird zwischen zwei Schritten geprüft. Eine Transkription oder Auswertung, die vor der Frist begonnen hat, läuft zu Ende.
+
+Zuerst kommen die Quellen mit begrenztem Rückstand dran, neueste Folge zuerst, danach die Quellen mit `"alles"` reihum, je eine Folge. Mit `rueckstand_reihenfolge = "alt_zuerst"` arbeitet eine Quelle von ihrer ältesten Folge an auf. Bei Quellen mit `vorauswahl` bewertet das Modell auch die älteren Titel, außer bei `"alles"`.
+
+Das Ergebnis wird unter „Aufarbeitung“ an die Berichtsdatei des Tages angehängt. Die Direktnachricht ist zu diesem Zeitpunkt schon verschickt.
+
+**Nur Aufarbeitung:** `tagesbetrieb.py --nur-archiv --archiv-bis HH:MM` arbeitet nur ältere Folgen auf, ohne Feeds, Fedi, Termine, Threads und Direktnachricht. Der Bericht kommt in eine eigene Datei `DATEN/berichte/…_aufarbeitung.md`. So lässt sich die Aufarbeitung von außen in Zeitblöcken aufrufen, etwa von einem Zeitplan, der den Rechner über den Tag zwischen mehreren Aufgaben aufteilt. Die Sperre gegen einen doppelten Start gilt auch hier.
 
 ## Auswertung im Detail
 
@@ -135,7 +148,7 @@ typ = "podcast"
 feed = "https://netzpolitik.org/feed/podcast/off-on/"
 sprache = "de"                          # ohne Angabe erkennt Whisper die Sprache selbst
 zweck = "tech"
-rueckstand = 1                          # optional, sonst Vorgabe aus [betrieb]
+rueckstand = 1                          # optional: Zahl oder "alles", sonst rueckstand_wochen aus [betrieb]
 formate = [{muster = "On The Record", format = "gespraech"}, {muster = "Off The Record", format = "tech"}]
 hinweise = "..."                        # optional, geht in die Anweisung an das Modell
 ```
@@ -156,6 +169,7 @@ hoechstens_pro_lauf = 1                 # optional
 vorauswahl = true                       # optional: Titel vorher bewerten lassen
 vorauswahl_ab = 3                       # optional: Mindestrelevanz
 ohne_livestreams = true                 # optional
+rueckstand_reihenfolge = "alt_zuerst"   # optional: Aufarbeitung von der ältesten Folge an
 hoechstdauer_minuten = 90               # optional
 
 [[quelle]]
@@ -175,7 +189,9 @@ Der Tagesbetrieb, Fedi und die Termine:
 
 ```toml
 [betrieb]
-rueckstand = 3
+rueckstand_wochen = 4                   # Aufarbeitung bei Quellen ohne rueckstand, 0 schaltet ab
+archiv_bis = "17:00"                    # bis zu dieser Uhrzeit wird aufgearbeitet
+archiv_block = 4                        # Folgen je Block
 stopp_hoechstens_minuten = 10
 temperatur_pause = 83
 temperatur_weiter = 70
@@ -200,6 +216,11 @@ Aus dem Projektordner:
 .venv/bin/python tagesbetrieb.py                  ein Lauf über alle Quellen
 .venv/bin/python tagesbetrieb.py --danach-aus     danach herunterfahren
 .venv/bin/python tagesbetrieb.py --stand          Stufe jeder Folge anzeigen
+.venv/bin/python tagesbetrieb.py --ohne-archiv    ohne Aufarbeitung
+.venv/bin/python tagesbetrieb.py --archiv-bis 15:00
+                                                  Aufarbeitung heute nur bis 15:00
+.venv/bin/python tagesbetrieb.py --nur-archiv --archiv-bis 11:30
+                                                  nur Aufarbeitung bis 11:30, ohne Feeds, Posten und Direktnachricht
 .venv/bin/python tagesbetrieb.py --neu-auswerten AUSWAHL
                                                   fertige Folgen neu auswerten: alle, Quelle oder Namensteil
 
@@ -238,8 +259,9 @@ DATEN/
   auswertungen/<quelle>/    Rohprotokolle jeder Auswertung, mit allen Kandidaten
   szene/                    gesehene Beiträge und funktionierende Feed-Adressen
   termine/                  Auswahl je Terminreihe, bekannte Termine, Termine der nächsten 48 Stunden
+  archiv/                   Kanallisten von YouTube für die Aufarbeitung
   seite/                    gebaute Seite
-  berichte/                 Tagesberichte
+  berichte/                 Tagesberichte und Berichte der Aufarbeitung
   logs/tagesbetrieb.log     Verlauf
   stand.json                Stufe jeder Folge
   gepostet.json             gepostete Notizen mit Link zum Thread
