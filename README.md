@@ -86,6 +86,7 @@ Jede Notiz hat zuerst den Status „ungeprüft“. Nach dem Abgleich mit dem Ori
 | `bauen.py` | Seite mit Hugo bauen, Suchindex mit Pagefind, geänderte Dateien per FTPS hochladen |
 | `posten.py` | Hinweis auf eine Notiz als Thread bei Mastodon |
 | `nachricht.py` | Text von der Standardeingabe als Direktnachricht an `bericht_an`, etwa für den Bericht des Dirigenten |
+| `profil.py` | Profilfelder des Kontos setzen, je Zeile Name und Wert, getrennt durch `\|`, von der Standardeingabe, etwa für die Fortschrittsbalken des Dirigenten; `--probe` zeigt nur |
 | `threads_loeschen.py` | alle Threads des Kontos löschen, Direktnachrichten bleiben |
 | `tagesbetrieb.py` | alle Schritte für alle Quellen, mit Stand, Stopp, Temperatur, Bericht |
 | `pruefen.py` | Status einer Notiz auf „geprüft“ setzen, committen, hochladen |
@@ -104,7 +105,7 @@ Notizen, Interessenprofil und die persönlichen Listen liegen in einem eigenen, 
 - ffmpeg, lftp, git, [yt-dlp](https://github.com/yt-dlp/yt-dlp) (am besten über pipx).
 - [Hugo](https://gohugo.io) extended (getestet 0.164.0).
 - [Pagefind](https://pagefind.app) (getestet 1.6.0). Auf Prozessoren ohne AVX2 stürzen die fertigen Pakete ab. Dann selbst kompilieren: `cargo install pagefind --locked --root ~/.local`.
-- Webspace mit FTPS-Zugang und ein Mastodon-Konto mit einem Token für `write:statuses`, `read:statuses` und `profile`. Das Leserecht braucht nur `threads_loeschen.py`.
+- Webspace mit FTPS-Zugang und ein Mastodon-Konto mit einem Token für `write:statuses`, `read:statuses` und `profile`. Das Leserecht braucht nur `threads_loeschen.py`, `profil.py` braucht zusätzlich `write:accounts`.
 
 ## Einrichtung
 
