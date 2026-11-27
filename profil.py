@@ -9,15 +9,15 @@ Skript nichts und endet mit einem Fehler. Mit --probe zeigt es nur, was es schre
 
 Der Zugang kommt aus der .env wie bei posten.py (MASTODON_ADRESSE, MASTODON_TOKEN). Das Token
 braucht dafür zusätzlich die Berechtigung write:accounts. Darüber setzt etwa der Dirigent am
-Ende jedes Laufs den Stand der großen Arbeiten ins Profil.
+Ende jedes Laufs den Stand der großen Arbeiten ins Profil. Netz- und Serverfehler wiederholt
+mastodon_api.py, danach endet das Skript mit Exit-Code 4.
 """
 
 import argparse
 import sys
 
-import requests
-
 from bauen import lies_env
+from mastodon_api import VORUEBERGEHEND, Voruebergehend, anfrage
 
 HOECHSTENS = 4
 LAENGE = 255
@@ -61,8 +61,8 @@ def main():
     neu = lies_felder(sys.stdin.read())
     env = lies_env()
     adresse = env["MASTODON_ADRESSE"].rstrip("/")
-    kopf = {"Authorization": f"Bearer {env['MASTODON_TOKEN']}"}
-    antwort = requests.get(f"{adresse}/api/v1/accounts/verify_credentials", headers=kopf, timeout=60)
+    token = env["MASTODON_TOKEN"]
+    antwort = anfrage("GET", f"{adresse}/api/v1/accounts/verify_credentials", token)
     antwort.raise_for_status()
     konto = antwort.json()
     vorhanden = [(f["name"], f["value"]) for f in konto.get("source", {}).get("fields", [])]
@@ -82,7 +82,7 @@ def main():
     for nr, (name, wert) in enumerate(felder):
         daten[f"fields_attributes[{nr}][name]"] = name
         daten[f"fields_attributes[{nr}][value]"] = wert
-    antwort = requests.patch(f"{adresse}/api/v1/accounts/update_credentials", headers=kopf, data=daten, timeout=60)
+    antwort = anfrage("PATCH", f"{adresse}/api/v1/accounts/update_credentials", token, data=daten)
     if antwort.status_code == 403:
         raise SystemExit("Abgelehnt (403). Hat das Token die Berechtigung write:accounts?")
     antwort.raise_for_status()
@@ -90,4 +90,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Voruebergehend as fehler:
+        print(f"Mastodon nicht erreichbar: {fehler}")
+        raise SystemExit(VORUEBERGEHEND) from None

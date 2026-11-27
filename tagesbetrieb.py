@@ -10,6 +10,10 @@ Aufruf:
   .venv/bin/python tagesbetrieb.py --nur-archiv --archiv-bis 11:30
                                                 nur Aufarbeitung, ohne Feeds, Posten und Direktnachricht;
                                                 so ruft der Dirigent sie blockweise auf
+  .venv/bin/python tagesbetrieb.py --nur-veroeffentlichen
+                                                nur ausgewertete Folgen veröffentlichen: Seite hochladen, Threads
+                                                posten oder abgebrochene fortsetzen, committen; keine Feeds,
+                                                keine Auswertung, keine Direktnachricht
   .venv/bin/python tagesbetrieb.py --neu-auswerten alle
                                                 fertige Folgen mit vorhandenem Transkript noch einmal
                                                 auswerten und ihre Notizen überschreiben; statt „alle“
@@ -57,6 +61,11 @@ abgebrochen. Fertige Notizen werden noch veröffentlicht.
 
 Temperatur: Erreicht eine Karte `temperatur_pause`, wird der laufende Schritt angehalten
 (SIGSTOP), bis alle Karten unter `temperatur_weiter` liegen.
+
+Posten: Ist Mastodon auch nach den Wiederholungen in mastodon_api.py nicht erreichbar, endet
+posten.py mit Exit-Code 4. Das zählt nicht als Fehlversuch, die Folge bleibt ausgewertet, und
+die übrigen Threads dieses Laufs warten mit. Ein abgebrochener Thread wird fortgesetzt
+(DATEN/threads.json), nicht neu begonnen.
 """
 
 import argparse
@@ -77,6 +86,7 @@ import requests
 
 from bauen import HOCHLADEN_GESCHEITERT, PROJEKT, lies_env
 from holen import NochNichtFertig, Uebersprungen, dateiname, lade, lies_feed, lies_youtube_alle, schreibe_meta
+from mastodon_api import VORUEBERGEHEND, Voruebergehend, anfrage
 
 ABGEBROCHEN = 3
 STUFEN = ["gefunden", "geladen", "transkribiert", "ausgewertet", "veroeffentlicht"]
@@ -212,6 +222,11 @@ class Betrieb:
 
     def gepostet(self):
         pfad = self.daten / "gepostet.json"
+        return json.loads(pfad.read_text(encoding="utf-8")) if pfad.exists() else {}
+
+    def threads(self):
+        """Stand der Threads aus posten.py: je Notiz die Kennungen der Beiträge und ihre Gesamtzahl."""
+        pfad = self.daten / "threads.json"
         return json.loads(pfad.read_text(encoding="utf-8")) if pfad.exists() else {}
 
     # Stopp und Temperatur
@@ -656,19 +671,35 @@ class Betrieb:
         log(f"Veröffentlichen: {len(warteschlange)} Notizen" + (", Termine geändert" if self.termine_geaendert else ""))
         if not self.seite_hochladen(warteschlange, "Seite" if warteschlange else "Termine"):
             return
+        mastodon_weg = False
+        threads = self.threads()
         for folge in warteschlange:
             notiz = Path(folge["notiz"])
             schon_gepostet = notiz.stem in self.gepostet()
-            if not schon_gepostet:
-                code = self.fuehre_aus([sys.executable, "posten.py", str(notiz), "--senden"], ueberwachen=False)
+            eintrag = threads.get(notiz.stem)
+            unvollstaendig = eintrag is not None and len(eintrag["ids"]) < eintrag["gesamt"]
+            abgebrochen = schon_gepostet and eintrag is None and folge.get("fehler", "").startswith("Posten")
+            posten = not schon_gepostet or unvollstaendig or abgebrochen
+            if posten:
+                if mastodon_weg:
+                    continue
+                befehl = [sys.executable, "posten.py", str(notiz), "--senden"] + (["--fortsetzen"] if schon_gepostet else [])
+                code = self.fuehre_aus(befehl, ueberwachen=False)
+                if code == VORUEBERGEHEND:
+                    mastodon_weg = True
+                    text = "Posten: Mastodon nicht erreichbar, der nächste Lauf postet nach"
+                    if text not in self.fehler:
+                        self.fehler.append(text)
+                    log(f"  FEHLER: {text}")
+                    continue
                 if code != 0:
                     self.scheitert(folge, f"Posten mit Exit-Code {code}")
                     continue
             self.setze(folge, "veroeffentlicht")
-            if schon_gepostet:
-                self.aktualisiert.append((self.quellenname(folge["quelle"]), folge["titel"]))
-            else:
+            if posten:
                 self.neue_notizen.append((self.quellenname(folge["quelle"]), folge["titel"]))
+            else:
+                self.aktualisiert.append((self.quellenname(folge["quelle"]), folge["titel"]))
         self.notizen_committen(warteschlange)
 
     def notizen_committen(self, folgen, aufarbeitung=False):
@@ -854,16 +885,12 @@ class Betrieb:
         if link:
             text += f"\n\n{link}"
         try:
-            antwort = requests.post(
-                f"{env['MASTODON_ADRESSE'].rstrip('/')}/api/v1/statuses",
-                headers={"Authorization": f"Bearer {env['MASTODON_TOKEN']}",
-                         "Idempotency-Key": f"lesesaal-bericht-{self.beginn:%Y%m%d%H%M%S}"},
-                data={"status": text, "visibility": "direct", "language": "de"},
-                timeout=60,
-            )
+            antwort = anfrage("POST", f"{env['MASTODON_ADRESSE'].rstrip('/')}/api/v1/statuses", env["MASTODON_TOKEN"],
+                              idempotenz=f"lesesaal-bericht-{self.beginn:%Y%m%d%H%M%S}",
+                              data={"status": text, "visibility": "direct", "language": "de"})
             antwort.raise_for_status()
             log("Bericht als Direktnachricht verschickt.")
-        except (requests.RequestException, KeyError, SystemExit) as fehler:
+        except (requests.RequestException, Voruebergehend, KeyError, SystemExit) as fehler:
             log(f"Direktnachricht fehlgeschlagen: {fehler}")
 
 
@@ -887,6 +914,8 @@ def main():
     parser.add_argument("--archiv-bis", metavar="HH:MM", help="Aufarbeitung heute nur bis zu dieser Uhrzeit")
     parser.add_argument("--nur-archiv", action="store_true",
                         help="nur ältere Folgen aufarbeiten: keine Feeds, kein Posten, keine Direktnachricht")
+    parser.add_argument("--nur-veroeffentlichen", action="store_true",
+                        help="nur ausgewertete Folgen veröffentlichen und posten, ohne Feeds und Direktnachricht")
     parser.add_argument("--neu-auswerten", metavar="AUSWAHL",
                         help="fertige Folgen noch einmal auswerten: alle, eine Quelle oder ein Teil des Namens")
     args = parser.parse_args()
@@ -907,6 +936,18 @@ def main():
     betrieb.stoppdatei.unlink(missing_ok=True)
     stunde, _, minute = (args.archiv_bis or str(betrieb.einst["archiv_bis"])).partition(":")
     bis = datetime.now().replace(hour=int(stunde), minute=int(minute or 0), second=0, microsecond=0)
+    if args.nur_veroeffentlichen:
+        print(f"\n===== Veröffentlichen {betrieb.beginn:%d.%m.%Y %H:%M} =====", flush=True)
+        betrieb.veroeffentlichen()
+        for quelle, titel in betrieb.nach_quelle():
+            print(f"veröffentlicht: {quelle}: {', '.join(titel)}")
+        for quelle, titel in betrieb.aktualisiert:
+            print(f"aktualisiert: {quelle}: {titel}")
+        for text in betrieb.fehler:
+            print(f"Fehler: {text}")
+        if not betrieb.neue_notizen and not betrieb.aktualisiert and not betrieb.fehler:
+            print("Nichts zu veröffentlichen.")
+        return
     if args.nur_archiv:
         print(f"\n===== Aufarbeitung {betrieb.beginn:%d.%m.%Y %H:%M} =====", flush=True)
         ordner = betrieb.daten / "berichte"

@@ -44,6 +44,8 @@ Kalender, Feeds, Pads ─────► termine ──────────�
 
 Stufen je Folge: `gefunden`, `geladen`, `transkribiert`, `ausgewertet`, `veroeffentlicht`, `ohne_funde` oder `uebersprungen`. Der Stand liegt in `DATEN/stand.json`. Bricht ein Lauf ab, macht der nächste dort weiter. Was schon existiert, wird nicht noch einmal gemacht. Nach drei Fehlern bleibt eine Folge liegen und erscheint im Bericht. Folgen der Aufarbeitung sind im Stand mit `archiv` markiert, `--stand` zeigt sie mit einem A. Scheitert nur das Hochladen der Seite, zählt das nicht als Fehler der Folgen: Sie bleiben ausgewertet, und der nächste Lauf lädt nach. Hochgeladen werden nur Dateien, die sich seit dem letzten Bau geändert haben, vier gleichzeitig. Nach `[seite] hochladen_hoechstens_minuten` (Vorgabe 20) bricht das Hochladen ab und gilt als gescheitert.
 
+**Posten:** Ist Mastodon nicht erreichbar, wiederholt `mastodon_api.py` jede Anfrage bis zu fünfmal, mit Pausen von 10 Sekunden bis 2 Minuten. Scheitert das Posten trotzdem, zählt das nicht als Fehler der Folge: Sie bleibt ausgewertet, die übrigen Threads des Laufs warten mit, und der nächste Lauf postet nach. Ein abgebrochener Thread wird fortgesetzt, nicht neu begonnen. `DATEN/threads.json` hält dafür je Notiz die schon geposteten Beiträge. Fehlt dort ein Eintrag, findet `posten.py` den ersten Beitrag über `gepostet.json` oder am Link zur Notiz unter den letzten Beiträgen des Kontos und liest die Antworten darunter nach. Jeder Beitrag trägt einen festen Idempotency-Key, damit eine verlorene Antwort keinen doppelten Beitrag erzeugt. `tagesbetrieb.py --nur-veroeffentlichen` holt Liegengebliebenes ohne einen ganzen Lauf nach.
+
 **Stoppsignal:** Die Datei `DATEN/stopp`. Zwischen zwei Schritten hält das Programm sofort an. Eine laufende Transkription oder Auswertung macht es fertig, wenn der geschätzte Rest in `stopp_hoechstens_minuten` passt, sonst bricht es sie ab. Fertige Notizen werden noch veröffentlicht. Steht in der Datei `aus`, fährt der Rechner danach herunter.
 
 **Temperatur:** Erreicht eine Grafikkarte `temperatur_pause`, wird der laufende Schritt mit SIGSTOP angehalten, bis alle Karten unter `temperatur_weiter` liegen.
@@ -84,7 +86,8 @@ Jede Notiz hat zuerst den Status „ungeprüft“. Nach dem Abgleich mit dem Ori
 | `szene.py` | Fediverse-Konten über ihre RSS-Feeds lesen, mit Ausweichsuche über WebFinger, als Tagesnotiz auswerten |
 | `termine.py` | Termine aus iCal, Feeds und Pads sammeln, auswählen, Seite und Kalender schreiben |
 | `bauen.py` | Seite mit Hugo bauen, Suchindex mit Pagefind, geänderte Dateien per FTPS hochladen |
-| `posten.py` | Hinweis auf eine Notiz als Thread bei Mastodon |
+| `posten.py` | Hinweis auf eine Notiz als Thread bei Mastodon, setzt abgebrochene Threads fort |
+| `mastodon_api.py` | Anfragen an Mastodon mit neuen Versuchen bei Netz- und Serverfehlern, für alle Skripte, die posten |
 | `nachricht.py` | Text von der Standardeingabe als Direktnachricht an `bericht_an`, etwa für den Bericht des Dirigenten |
 | `profil.py` | Profilfelder des Kontos setzen, je Zeile Name und Wert, getrennt durch `\|`, von der Standardeingabe, etwa für die Fortschrittsbalken des Dirigenten; `--probe` zeigt nur |
 | `threads_loeschen.py` | alle Threads des Kontos löschen, Direktnachrichten bleiben |
@@ -224,6 +227,8 @@ Aus dem Projektordner:
                                                   nur Aufarbeitung bis 11:30, ohne Feeds, Posten und Direktnachricht
 .venv/bin/python tagesbetrieb.py --neu-auswerten AUSWAHL
                                                   fertige Folgen neu auswerten: alle, Quelle oder Namensteil
+.venv/bin/python tagesbetrieb.py --nur-veroeffentlichen
+                                                  nur Ausgewertetes hochladen, posten und committen
 
 .venv/bin/python holen.py QUELLE                  neueste Folgen anzeigen
 .venv/bin/python holen.py QUELLE --laden NR       Folge Nr. NR laden
@@ -235,6 +240,8 @@ Aus dem Projektordner:
 .venv/bin/python bauen.py --vorschau              lokale Vorschau unter http://localhost:1313/
 .venv/bin/python bauen.py --hochladen             bauen und hochladen
 .venv/bin/python posten.py NOTIZ.md               Hinweis nur anzeigen (--senden, --neu)
+.venv/bin/python posten.py NOTIZ.md --senden --fortsetzen
+                                                  begonnenen Thread vervollständigen
 .venv/bin/python threads_loeschen.py              anzeigen, was gelöscht würde (--loeschen)
 .venv/bin/python pruefen.py TEIL_DES_NAMENS       Notiz auf „geprüft“ setzen (--zurueck)
 ```
@@ -267,6 +274,7 @@ DATEN/
   logs/tagesbetrieb.log     Verlauf
   stand.json                Stufe jeder Folge
   gepostet.json             gepostete Notizen mit Link zum Thread
+  threads.json              je Notiz die schon geposteten Beiträge und ihre Gesamtzahl
 ```
 
 ## Gemessen
